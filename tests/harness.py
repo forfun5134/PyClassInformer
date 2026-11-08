@@ -57,7 +57,7 @@ def reset_modules():
 
 
 def build(classes, x64=True, extra_setup=None, use=True, input_file=None,
-          name_functions=True):
+          name_functions=True, thumb=False, procname="metapc"):
     """Build a synthetic image and make it the active database."""
     import fakepe
 
@@ -65,6 +65,8 @@ def build(classes, x64=True, extra_setup=None, use=True, input_file=None,
     img = fakepe.RTTIImage(x64=x64,
                            input_file=input_file or "C:/samples/test_%s.exe" % ("x64" if x64 else "x86"))
     img.name_functions = name_functions
+    img.thumb = thumb
+    img.procname = procname
     expected = img.build(classes)
     if extra_setup is not None:
         extra_setup(img)

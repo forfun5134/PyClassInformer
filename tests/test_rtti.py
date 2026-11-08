@@ -126,6 +126,48 @@ class TestX86(unittest.TestCase):
             self.assertEqual(self.result[ea].vfeas, info["methods"])
 
 
+class TestARM(unittest.TestCase):
+    """32 bit ARM stores the Thumb state in bit 0 of the vftable entries."""
+
+    def test_thumb_entries_are_normalized(self):
+        img, expected = harness.build(harness.SI_CLASSES, x64=False,
+                                      thumb=True, procname="ARM")
+        result = harness.quiet(harness.parse, img)
+        self.assertEqual(set(result), set(expected["vftables"]))
+        import pyclassinformer.pci_utils as pci_utils
+        self.assertTrue(pci_utils.utils.get().is_arm32)
+        for ea, info in expected["vftables"].items():
+            self.assertEqual(result[ea].vfeas, info["methods"])
+            for vfea in result[ea].vfeas:
+                self.assertEqual(vfea & 1, 0)
+
+    def test_report_architecture(self):
+        img, expected = harness.build(harness.SI_CLASSES, x64=False,
+                                      thumb=True, procname="ARM")
+        result = harness.quiet(harness.parse, img)
+        import json
+        import pyclassinformer.pci_report as pci_report
+        self.assertEqual(json.loads(pci_report.build_json(result))["architecture"], "arm")
+
+        img, expected = harness.build(harness.SI_CLASSES, x64=True, procname="ARM")
+        result = harness.quiet(harness.parse, img)
+        doc = json.loads(pci_report.build_json(result))
+        self.assertEqual(doc["architecture"], "arm64")
+        self.assertFalse(pci_utils_is_arm32())
+
+    def test_arm64_has_no_thumb_bit(self):
+        img, expected = harness.build(harness.SI_CLASSES, x64=True, procname="ARM")
+        result = harness.quiet(harness.parse, img)
+        self.assertFalse(pci_utils_is_arm32())
+        for ea, info in expected["vftables"].items():
+            self.assertEqual(result[ea].vfeas, info["methods"])
+
+
+def pci_utils_is_arm32():
+    import pyclassinformer.pci_utils as pci_utils
+    return pci_utils.utils.get().is_arm32
+
+
 class TestMultipleInheritance(unittest.TestCase):
 
     def setUp(self):

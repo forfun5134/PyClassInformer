@@ -66,15 +66,24 @@ class RTTIImage(object):
 
         #: when False, functions are left unnamed (IDA would show sub_XXX)
         self.name_functions = True
+        #: 32 bit ARM stores the Thumb state in bit 0 of a function pointer
+        self.thumb = False
+        #: processor name reported by ida_ida.inf_get_procname()
+        self.procname = "metapc"
         self.expected = {"vftables": {}, "classes": {}}
         self.td_eas = {}
         self.func_eas = {}
 
     # ------------------------------------------------------------------
     def use(self):
-        """Make this image the active mock database."""
+        """Make this image the active database."""
+        import ida_idp
         image.IMAGE = self.img
-        return self
+        image.IMAGE.procname = self.procname
+        if self.procname.lower().startswith("arm"):
+            ida_idp.ph.id = ida_idp.PLFM_ARM
+        else:
+            ida_idp.ph.id = ida_idp.PLFM_386
 
     def rva(self, ea):
         if self.x64:
@@ -216,7 +225,8 @@ class RTTIImage(object):
                     if fea is None:
                         fea = self.add_function(method)
                     method_eas.append(fea)
-                    img.write_uint(slot, fea, self.ptr_size)
+                    stored = fea | 1 if self.thumb else fea
+                    img.write_uint(slot, stored, self.ptr_size)
                     self._define_offset(slot, fea)
 
                 # a constructor that stores the vftable pointer (references the

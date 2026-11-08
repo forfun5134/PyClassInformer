@@ -332,8 +332,15 @@ class utils(object):
 
     @staticmethod
     def get_data_refs_to(ea, exact=True):
-        """Yield the addresses that reference ``ea`` as data (1 == dr_R etc)."""
-        for xref in idautils.XrefsTo(ea, ida_compat.xref_flags(1, exact)):
+        """Yield the addresses that reference ``ea`` as data.
+
+        This is what :func:`idautils.DataRefsTo` does (``XREF_DATA``), plus
+        ``XREF_EXACT`` so that IDA 9.5's extra Thumb/MIPS16 aliases are not
+        reported twice.
+        """
+        import ida_xref
+        flags = ida_compat.xref_flags(getattr(ida_xref, "XREF_DATA", 0x02), exact)
+        for xref in idautils.XrefsTo(ea, flags):
             yield xref.frm
 
     @classmethod

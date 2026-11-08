@@ -12,8 +12,11 @@ class Xref(object):
 
 def XrefsTo(ea, flags=0):
     exact = bool(flags & ida_xref.XREF_EXACT)
+    data_only = bool(flags & ida_xref.XREF_DATA) and not (flags & 0x1F)
     for xref in image.IMAGE.get_xrefs_to(ea):
         if exact and xref.to != ea:
+            continue
+        if data_only and not (1 <= xref.type <= 5):
             continue
         yield Xref(xref.frm, xref.to, xref.type)
 
