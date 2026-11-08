@@ -45,10 +45,11 @@ analysis settings (see "IDA 9.5 compatibility notes" below). In short:
 - **Faster**: type descriptors are parsed once, structures that were already
   applied are not re-applied, and strings are read in one call.
 - **Closer to the code**: the vftables, the constructors/destructors and the
-  virtual methods are commented, so the RTTI information shows up in the
-  disassembly *and* in the Hex-Rays pseudocode (see "Comments and pseudocode
-  annotations" below). The five RTTI structures are documented in the Local
-  Types view as well.
+  virtual methods are commented, so the RTTI information (including the class
+  hierarchy and the base class subobject offsets) shows up in the disassembly
+  *and* in the Hex-Rays pseudocode (see "Comments and pseudocode annotations"
+  below). The five RTTI structures are documented in the Local Types view as
+  well.
 
 ## Features (short)
 - Display class names, vftables and class hierarchies as a list
@@ -59,7 +60,7 @@ analysis settings (see "IDA 9.5 compatibility notes" below). In short:
 - Rename virtual methods by appending class names to them
 - Add the FUNC_LIB flag to methods that known classes own
 - Rename possible constructors and destructors
-- Add comments to the vftable slots, the possible ctors/dtors and the virtual methods (visible in the pseudocode), and document the RTTI structures
+- Add comments to the vftables, the possible ctors/dtors and the virtual methods - including their base classes and subobject offsets - so they are visible in the pseudocode, and document the RTTI structures
 - Coloring known class names and their methods on the list and the tree widgets (IDA 8.3 or later)
 - Print a summary of the parsed RTTI data (number of classes, vftables, virtual methods, abstract classes, library/user classes, ...)
 - Export the result as JSON, CSV or a plain text report
@@ -105,12 +106,26 @@ turned off with the "Add comments ..." option):
 | Where | Comment | Visible in |
 |---|---|---|
 | virtual method slot of a vftable | `[PyClassInformer] Dog vtable slot 1: Dog::fetch` | disassembly of the vftable, Xrefs view |
-| RTTI pointer in front of the vftable | `[PyClassInformer] vftable of Dog (2 virtual methods)` | disassembly |
-| instruction that loads the vftable (ctor/dtor) | `[PyClassInformer] vftable of Dog (constructor/destructor candidate)` | **pseudocode** (Hex-Rays prints the comment of every statement) |
-| function that loads the vftable | `[PyClassInformer] possible constructor/destructor of Dog` | pseudocode header, Functions view |
-| virtual method | `[PyClassInformer] virtual method of Dog` | pseudocode header, Functions view |
-| complete object locator / type descriptor | `[PyClassInformer] complete object locator of Dog (offset 0x0, 2 base classes)` | disassembly |
+| RTTI pointer in front of the vftable | `[PyClassInformer] vftable of Dog (2 virtual methods; Dog: Animal)` | disassembly |
+| instruction that loads the vftable (ctor/dtor) | `[PyClassInformer] vftable of Dog (possible constructor/destructor; Dog: Animal)` | **pseudocode** (Hex-Rays prints the comment of every statement) |
+| function that loads the vftable | `[PyClassInformer] possible constructor/destructor of Dog (Dog: Animal)` | pseudocode header, Functions view |
+| virtual method | `[PyClassInformer] virtual method of Dog (Dog: Animal)` | pseudocode header, Functions view |
+| complete object locator / type descriptor | `[PyClassInformer] complete object locator of Derived (offset 0x8, flags: MULTINH, hierarchy: Derived, Base1, Base2)` | disassembly |
 | `RTTITypeDescriptor`, `RTTIClassHierarchyDescriptor`, `RTTIBaseClassDescriptor`, `RTTIBaseClassArray`, `RTTICompleteObjectLocator` | description of every field | Local Types view (type comment) |
+
+**The inheritance is part of the comments**, not only of the list and the tree:
+`Dog: Animal` is the same text as the "Hierarchy" column, and for multiple
+inheritance every base class is listed in the order of the base class array
+(`Derived: Base1, Base2`). A vftable that belongs to a base class subobject
+says so as well:
+
+```
+[PyClassInformer] virtual method of Derived (Derived: Base1, Base2; subobject: Base2 at +0x8)
+```
+
+so a method seen in the pseudocode of the *primary* vftable of `Derived` and a
+method seen through the `Base2` subobject can be told apart at a glance. The
+CHD flags (`MULTINH`, `VIRTINH`, `AMBIG`) are added to the locator comment.
 
 Two rules make the annotations safe to use:
 
@@ -352,7 +367,7 @@ images (`tests/fakepe.py`), so the parser, the report writers and the UI
 classes can be exercised on any machine:
 
 ```bash
-python3 tests/run_tests.py        # 130 tests, no IDA required
+python3 tests/run_tests.py        # 138 tests, no IDA required
 python3 tests/run_tests.py -v
 ```
 

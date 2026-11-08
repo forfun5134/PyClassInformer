@@ -10,7 +10,8 @@ place for this information is right where it is used:
   function;
 - the functions that reference a vftable get a function comment, and so do the
   virtual methods ("virtual method of Foo"), which Hex-Rays shows above the
-  pseudocode;
+  pseudocode.  These comments carry the inheritance information too, e.g.
+  "virtual method of Derived (Derived: Base1, Base2; subobject: Base2 at +0x8)";
 - the five RTTI structures get a type comment, so they are documented in the
   Local Types view.
 
@@ -76,6 +77,63 @@ def _plural(count, singular, plural=None):
 
 def _count(counters, key):
     counters[key] = counters.get(key, 0) + 1
+
+
+# --------------------------------------------------------------------------
+# inheritance information (the same data as the Hierarchy column)
+# --------------------------------------------------------------------------
+def hierarchy_names(col):
+    """The complete hierarchy of ``col``: ``['Derived', 'Base1', 'Base2']``.
+
+    ``col.bases`` is the base class array of the class hierarchy descriptor, so
+    the first entry is the class itself and the rest are its base classes, in
+    the order IDA/MSVC stores them (the same order as the "Hierarchy" column).
+    """
+    names = []
+    for bcd in getattr(col, "bases", None) or []:
+        name = getattr(bcd, "name", None)
+        if name and name not in names:
+            names.append(name)
+    if not names and getattr(col, "name", None):
+        names.append(col.name)
+    return names
+
+
+def subobject_name(col):
+    """``'Base2 at +0x8'`` when the vftable belongs to a base subobject."""
+    offset = getattr(col, "offset", 0) or 0
+    if not offset:
+        return ""
+    name = getattr(col, "name", "")
+    try:
+        paths = col.get_paths_by_offset()
+        if paths and paths[0]:
+            name = paths[0][-1].name
+    except Exception:
+        pass
+    return "{} at +{:#x}".format(name, offset)
+
+
+def hierarchy_text(col):
+    """``'Derived: Base1, Base2'`` or ``''`` when the class has no base class."""
+    names = hierarchy_names(col)
+    head = names[0] if names else getattr(col, "name", "")
+    rest = names[1:]
+    return "{}: {}".format(head, ", ".join(rest)) if rest else ""
+
+
+def _note(col, *prefixes):
+    """``' (Derived: Base1, Base2; subobject: Base2 at +0x8)'`` or ``''``.
+
+    ``prefixes`` are put in front ("2 virtual methods", ...) so that a comment
+    never contains nested parentheses.
+    """
+    parts = list(prefixes) + [hierarchy_text(col)]
+    subobject = subobject_name(col)
+    if subobject:
+        parts.append("subobject: " + subobject)
+    text = "; ".join([part for part in parts if part])
+    return " (" + text + ")" if text else ""
 
 
 # --------------------------------------------------------------------------
@@ -190,19 +248,27 @@ def annotate(result, funcs=True, code=True, slots=True, types=True):
     for vtable, col in result.items():
         if code:
             # the locator and the type descriptor themselves
-            set_code_comment(col.ea, "complete object locator of {} (offset {:#x}, {})".format(
-                col.name, col.offset, _plural(col.nb_bases, "base class", "base classes")), counters)
+            names = hierarchy_names(col)
+            hierarchy = ", ".join(names) if len(names) > 1 else ""
+            parts = ["offset {:#x}".format(col.offset)]
+            flags = (getattr(col, "flag_names", "") or "").strip()
+            if flags:
+                parts.append("flags: " + flags)
+            if hierarchy:
+                parts.append("hierarchy: " + hierarchy)
+            set_code_comment(col.ea, "complete object locator of {} ({})".format(
+                col.name, ", ".join(parts)), counters)
             if col.tdea != ida_idaapi.BADADDR:
                 set_code_comment(col.tdea, "type descriptor of {}".format(col.name), counters)
 
             # the slot in front of the vftable holds the RTTI pointer
-            set_code_comment(col.col_ptr_ea, "vftable of {} ({})".format(
-                col.name, _plural(len(col.vfeas), "virtual method")), counters)
+            set_code_comment(col.col_ptr_ea, "vftable of {}{}".format(
+                col.name, _note(col, _plural(len(col.vfeas), "virtual method"))), counters)
 
             # the instructions that load the vftable address (ctors/dtors)
             for refea in getattr(col, "refaddrs", []):
-                set_code_comment(refea, "vftable of {} (constructor/destructor "
-                                 "candidate)".format(col.name), counters)
+                set_code_comment(refea, "vftable of {}{}".format(
+                    col.name, _note(col, "possible constructor/destructor")), counters)
 
         if slots:
             for i, vfea in enumerate(col.vfeas):
@@ -211,9 +277,10 @@ def annotate(result, funcs=True, code=True, slots=True, types=True):
 
         if funcs:
             for vfea in col.vfeas:
-                add_role(vfea, "virtual method of {}".format(col.name))
+                add_role(vfea, "virtual method of {}{}".format(col.name, _note(col)))
             for refea in col.refeas:
-                add_role(refea, "possible constructor/destructor of {}".format(col.name))
+                add_role(refea, "possible constructor/destructor of {}{}".format(
+                    col.name, _note(col)))
 
     if funcs:
         # a function can be a virtual method of a class and a constructor
