@@ -206,11 +206,74 @@ class TestRunPCI(unittest.TestCase):
         self.assertEqual(image.IMAGE.func_cmts, {})
         self.assertNotIn("comments", output)
 
+    def test_comments_use_the_final_function_names(self):
+        """The annotation runs after the renaming, so it shows the new names."""
+        img, expected = harness.build(harness.SI_CLASSES, x64=True, name_functions=False)
+        import image
+        import ida_funcs
+        import pyclassinformer.pyclassinformer as pci
+        import pyclassinformer.pci_config as pci_config
+        import pyclassinformer.pci_report as pci_report
+        harness.quiet(pci.run_pci, config=pci_config.pci_config(rnvm=True))
+        result = pci_report.LAST_RESULT["result"]
+        animal = [ea for ea, col in result.items() if col.name == "Animal"][0]
+        vfea = result[animal].vfeas[0]
+        name = ida_funcs.get_func_name(vfea)
+        self.assertTrue(name.startswith("Animal::"), name)
+        self.assertIn("Animal vtable slot 0: " + name,
+                      image.IMAGE.cmts.get((animal, False), ""))
+
     def test_form_has_the_flag(self):
         import pyclassinformer.pci_config_form as form
         src = open(form.__file__).read()
         self.assertIn("{annotate}", src)
         self.assertIn('"annotate"', src)
+
+
+class TestScale(AnnotationBase):
+    """A larger database: every vftable is annotated, exactly once."""
+
+    def setUp(self):
+        classes = []
+        for i in range(8):
+            classes.append({"name": "Root%d" % i, "bases": [], "vftables": [
+                {"offset": 0, "methods": ["Root%d::m%d" % (i, j) for j in range(3)]}]})
+        for i in range(32):
+            classes.append({"name": "Leaf%d" % i, "bases": ["Root%d" % (i % 8)],
+                            "vftables": [{"offset": 0,
+                                          "methods": ["Leaf%d::a%d" % (i, j) for j in range(4)]}]})
+        self.img, self.expected = harness.build(classes, x64=True)
+        self.result = harness.quiet(harness.parse, self.img)
+        import image
+        self.db = image.IMAGE
+        import pyclassinformer.pci_annotate as pci_annotate
+        self.ann = pci_annotate
+
+    def test_every_slot_is_commented_once(self):
+        counters = self.ann.annotate(self.result)
+        slots = sum(len(col.vfeas) for col in self.result.values())
+        self.assertEqual(len(self.result), 40)
+        self.assertEqual(slots, 8 * 3 + 32 * 4)
+        # every vftable contributes its slots plus the locator/TD/vftable
+        # comments, and every method exactly one function comment
+        self.assertEqual(counters["type_comments"], len(self.ann.TYPE_COMMENTS))
+        self.assertEqual(counters["func_comments"] - slots,
+                         len(self.result) - self._overlapping_ctors())
+        self.assertEqual(len([c for c in self.db.cmts.values()
+                              if "vtable slot" in c]), slots)
+        again = self.ann.annotate(self.result)
+        self.assertEqual(sum(again.values()), 0)
+
+    def _overlapping_ctors(self):
+        """Functions that are both a method and a ctor candidate."""
+        owners = {}
+        for col in self.result.values():
+            for ea in col.vfeas:
+                owners.setdefault(ea, set()).add(("method", col.name))
+            for ea in col.refeas:
+                owners.setdefault(ea, set()).add(("ctor", col.name))
+        return len([ea for ea, roles in owners.items()
+                    if len({r[0] for r in roles}) > 1])
 
 
 if __name__ == "__main__":

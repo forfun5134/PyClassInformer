@@ -315,14 +315,33 @@ The changes above were checked against Hex-Rays' documentation for 9.5:
   `set_type_cmt()` is documented as working "only for non-trivial types", which
   is why it is applied to the five RTTI structures and to nothing else.
 
-Three regressions were found this way and fixed: a `del_items()` call that used
+The APIs the plugin calls were re-checked one by one for the final review:
+
+| Module | Used for | Verified |
+|---|---|---|
+| `ida_bytes` | RTTI bytes, vftable slots, comments | `set_cmt(ea, cmt, rptble) -> bool`, `get_cmt(ea, rptble) -> Union[str, None]` (the code turns `None` into `""`), `del_items(ea, DELIT_SIMPLE, size)`, `create_struct` |
+| `ida_funcs` | function comments, `FUNC_LIB` | `get_func_cmt(func, rptble)`/`set_func_cmt(func, cmt, rptble)`, `get_func`, `update_func`, `FUNC_LUMINA`/`FUNC_THUNK` |
+| `ida_typeinf` | RTTI structures, type comments | `create_udt`/`add_udm`/`set_named_type`/`set_type_cmt` return `tinfo_code_t`, `apply_tinfo`, `udm_t.offset`/`size` in bits, `get_named_type_tid` |
+| `ida_kernwin` | chooser, form, actions, docking | `Choose` (`CH_*`, `CHCOL_*` via `chcol()`), `OnGetLineAttr(n) -> (color, flags)`, `get_chooser_rows(cri, chooser, GCRF_*)`, `set_dock_pos(src_ctrl, dest_ctrl, orient)` (the `DP_TAB`/`DP_FLOATING` overloads), `ask_file`, `UI_Hooks` |
+| `ida_dirtree` | class folders, moving functions | `dirtree_t.rename()` moves an entry into a directory (`DTE_OWN_CHILD`/`DTE_BAD_PATH` error codes), `mkdir()` wants a trailing `/`, `dirtree_iterator_t.cursor`/`.pattern`, `get_std_dirtree(DIRTREE_FUNCS/NAMES)` |
+| `ida_ida`/`ida_idp`/`ida_nalt`/`ida_segment`/`ida_xref`/`ida_name`/`ida_auto`/`ida_loader`/`idc`/`idautils` | architecture, segments, xrefs, names, auto analysis | `inf_get_procname()`, `ph.id`, `XREF_DATA`/`XREF_EXACT`, `demangle_name`, `SN_NOCHECK`/`SN_FORCE`, `REF_OFF32`/`REF_OFF64`, `get_strlit_contents()` |
+
+`tests/test_apidocs.py` keeps this honest: it walks the syntax tree of every
+plugin module and fails if an `ida_xxx.name` reference does not exist in the
+9.5 model (strings and comments are ignored, so a typo in an API name is
+caught). It also fails if a module that IDA 9.0 removed (`ida_struct`,
+`ida_enum`) is imported outside a `try` block, and if a `CHCOL_*` value is
+hard-coded instead of resolved with `chcol()`.
+
+Four regressions were found this way and fixed: a `del_items()` call that used
 `DELIT_DELNAMES` (it deleted IDA's own `??_R0?AVFoo@@` type-descriptor names),
 a `set_named_type()` return value that was read as a boolean although it is a
 `tinfo_code_t` (this made the plugin silently fall back to the legacy structure
-backend), and - found while writing the new annotations - the same mistake in
-the other direction: `if not tif.set_type_cmt(...)` treats the success of
-`set_type_cmt()` (`TERR_OK`, i.e. `0`) as a failure. All three are covered by
-tests now.
+backend), the same mistake in the other direction - `if not
+tif.set_type_cmt(...)` treats the success of `set_type_cmt()` (`TERR_OK`, i.e.
+`0`) as a failure - and a stale-state bug found by the new dirtree model: the
+Functions/Names trees are per database, so the harness has to drop them between
+two databases (the plugin itself was fine). All of it is covered by tests now.
 
 ## Testing without IDA
 The repository ships an offline test harness. It contains a small model of the
@@ -331,15 +350,17 @@ images (`tests/fakepe.py`), so the parser, the report writers and the UI
 classes can be exercised on any machine:
 
 ```bash
-python3 tests/run_tests.py        # 112 tests, no IDA required
+python3 tests/run_tests.py        # 130 tests, no IDA required
 python3 tests/run_tests.py -v
 ```
 
 > [!NOTE]
 > The harness models IDAPython, it is not IDAPython. It verifies the logic
-> (addresses, offsets, flags, hierarchy walking, reports, renaming), but it
-> cannot verify the real Qt widgets or IDA's type application. A final check on
-> a real IDA 9.5 with a large MFC/STL binary is still recommended.
+> (addresses, offsets, flags, hierarchy walking, reports, renaming, comments,
+> folder moves) and it verifies that every IDAPython name the plugin uses
+> exists in the 9.5 model, but it cannot verify the real Qt widgets, the
+> Hex-Rays rendering or IDA's own type application. A final check on a real
+> IDA 9.5 with a large MFC/STL binary is still recommended.
 
 ## Note
 - I **WILL NOT** support parsing GCC's RTTI. **DO NOT** open an issue about it.

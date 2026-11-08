@@ -84,6 +84,11 @@ def ask_file(save, default_name="", filters="", caption=""):
     return None
 
 
+def get_kernel_version():
+    """The kernel version string; the mock models IDA 9.5."""
+    return "9.5.241209"
+
+
 def get_chooser_rows(cri, chooser, flags):
     # emulate a chooser that provides no rows: PyClassInformer must fall back
     # to the default colors
@@ -175,6 +180,11 @@ CH_CAN_INS = 0x0020
 CH_NO_SORT = 0x0040
 CH_KEEP = 0x0080
 
+GCRF_HEADER = 0x00000001
+GCRF_SELECTION = 0x00000002
+GCRF_CURRENT = 0x00000004
+GCRF_ALL = 0x00000008
+
 CHCOL_PLAIN = 0x00000000
 CHCOL_EA = 0x00000001
 CHCOL_DEC = 0x00000002
@@ -193,6 +203,7 @@ class Choose(object):
     CHCOL_EA = CHCOL_EA
     CHCOL_DEC = CHCOL_DEC
     CHCOL_HEX = CHCOL_HEX
+    CHCOL_FNAME = CHCOL_FNAME
     CHCOL_INODENAME = CHCOL_INODENAME
 
     CH_MULTI = 0x0001

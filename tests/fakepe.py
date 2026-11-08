@@ -190,7 +190,7 @@ class RTTIImage(object):
         for cls in classes:
             name = cls["name"]
             info = class_info[name]
-            for vt in cls.get("vftables", []):
+            for vt_index, vt in enumerate(cls.get("vftables", [])):
                 col_ea = self.data_alloc.alloc(24 if self.x64 else 20, self.ptr_size)
                 col_ptr_ea = self.data_alloc.alloc(self.ptr_size * (len(vt["methods"]) + 1),
                                                    self.ptr_size)
@@ -230,8 +230,13 @@ class RTTIImage(object):
                     self._define_offset(slot, fea)
 
                 # a constructor that stores the vftable pointer (references the
-                # COL slot, like the real compiler generated code)
-                ctor_ea = self.add_function("{}::ctor".format(name.split("::")[-1]))
+                # COL slot, like the real compiler generated code).  A class
+                # with several vftables has several of them, and their names
+                # must differ, just like in a real binary.
+                ctor_name = "{}::ctor".format(name.split("::")[-1])
+                if vt_index:
+                    ctor_name += "_{}".format(vt_index)
+                ctor_ea = self.add_function(ctor_name)
                 self.img.add_xref(ctor_ea, col_ptr_ea, 1)
 
                 self.expected["vftables"][vtable_ea] = {

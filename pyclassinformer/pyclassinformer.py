@@ -78,17 +78,6 @@ def run_pci(config=None, icon=-1, export=None):
     except Exception as e:
         _warn("detecting known library classes failed.", e)
 
-    # comment the vftables, the ctors/dtors (they show up in the pseudocode)
-    # and the RTTI structures
-    if getattr(config, "annotate", False):
-        try:
-            counters = pci_annotate.annotate(result)
-            text = pci_annotate.format_counters(counters)
-            if text:
-                print("PyClassInformer: " + text + ".")
-        except Exception as e:
-            _warn("adding the RTTI comments failed.", e)
-
     if getattr(config, "rtti", True):
         try:
             msvc_rtti.rtti_parser.show(result, verbose=getattr(config, "verbose", False))
@@ -120,15 +109,31 @@ def run_pci(config=None, icon=-1, export=None):
 
     # dock the tree next to the functions
     if tree:
+        # On IDA 9.0, if the tree widget is directly docked in the same tab,
+        # the Functions subview freezes. I think it is a bug.
+        # To avoid it, once create it as a floating widget, then dock it to
+        # the Functions subview.  Both steps are guarded separately: if making
+        # the widget floating fails, docking it to the tab can still work.
         try:
-            # On IDA 9.0, if the tree widget is directly docked in the same tab,
-            # the Functions subview freezes. I think it is a bug.
-            # To avoid it, once create it as a floating widget, then dock it to
-            # the Functions subview.
             ida_kernwin.set_dock_pos(tree.title, None, ida_kernwin.DP_FLOATING)
-            ida_kernwin.set_dock_pos(tree.title, 'Functions', ida_kernwin.DP_TAB)
+        except Exception as e:
+            _warn("floating the Method Classifier failed.", e)
+        try:
+            ida_kernwin.set_dock_pos(tree.title, "Functions", ida_kernwin.DP_TAB)
         except Exception as e:
             _warn("docking the Method Classifier failed.", e)
+
+    # comment the vftables, the ctors/dtors (they show up in the pseudocode)
+    # and the RTTI structures.  This runs after the renaming above so that the
+    # comments contain the final function names.
+    if getattr(config, "annotate", False):
+        try:
+            counters = pci_annotate.annotate(result)
+            text = pci_annotate.format_counters(counters)
+            if text:
+                print("PyClassInformer: " + text + ".")
+        except Exception as e:
+            _warn("adding the RTTI comments failed.", e)
 
     # report export (optional)
     if export is None and getattr(config, "export_report", False):

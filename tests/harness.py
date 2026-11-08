@@ -38,6 +38,9 @@ def reset_modules():
     del ida_kernwin.MESSAGES[:]
     del ida_kernwin.DOCK_CALLS[:]
 
+    import ida_dirtree
+    ida_dirtree.STD_TREES.clear()      # the function/name dirtrees are per database
+
     import idc
     if hasattr(idc, "JUMPED"):
         del idc.JUMPED[:]

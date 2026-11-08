@@ -15,7 +15,7 @@ Requires nothing but Python 3.8+ (the standard library only).
 
 | File | Purpose |
 | --- | --- |
-| `mock_ida/` | A small model of the IDAPython 9.5 API: segments, bytes, names, xrefs, functions, `ida_typeinf` structures, `ida_kernwin.Choose`/`Form`/actions, `ida_dirtree`, ... |
+| `mock_ida/` | A small model of the IDAPython 9.5 API: segments, bytes, names, xrefs, functions, comments, `ida_typeinf` structures and type comments, `ida_kernwin.Choose`/`Form`/actions, `ida_dirtree` (including the dynamic Functions/Names trees), ... |
 | `fakepe.py` | Builds synthetic MSVC RTTI data (TD, CHD, BCA, BCD, COL, vftables) for x86 and x64, with correct MSVC layouts and RVAs, and returns the expected result |
 | `harness.py` | Helpers: build an image, reset the global state between tests, run the parser quietly |
 | `test_rtti.py` | Parser: single/multiple inheritance, x86/x64, hierarchy paths, flags, pure virtual methods, broken RTTI, long and undemanglable names, both structure backends, database switching |
@@ -23,6 +23,7 @@ Requires nothing but Python 3.8+ (the standard library only).
 | `test_ui.py` | Result chooser (rows, colors, navigation, export actions), Method Classifier (renaming, FUNC_LIB, tree items) and `run_pci` end-to-end |
 | `test_utils.py` | `ida_compat` (versions, layouts, structure creation), `pci_utils` (vftable detection, method walking, ARM Thumb normalization), `qtutils` without Qt, library class rules, plugin entry point |
 | `test_annotation.py` | Comments and type comments: exact text of every comment kind, idempotence, "a user comment is never overwritten", the per-kind switches, and `run_pci` with the option on/off |
+| `test_apidocs.py` | IDAPython surface audit: every `ida_xxx.name` reference of the plugin must exist in the 9.5 model, removed modules may only be imported in a `try` block, `CHCOL_*` must be resolved through `chcol()`, and the documented constants/flags must be present |
 
 ## What is verified
 
@@ -39,6 +40,10 @@ Requires nothing but Python 3.8+ (the standard library only).
 - the annotations: the text of the vftable slot, ctor/dtor, method and type
   comments, that a second run adds nothing, and that comments of the user are
   preserved
+- the folder moves of the functions (`mvvm`/`mvcd`) in the Functions and Names
+  dirtrees, and the dirtree helpers (`get_full_paths`, `get_abs_path_by_inode`,
+  `get_parent_dir_by_inode`)
+- that every IDAPython name the plugin references exists in the 9.5 model
 - the plugin entry point (`PLUGIN_ENTRY().init()` registers the action, the
   menu entry and the options form)
 
@@ -53,7 +58,8 @@ Requires nothing but Python 3.8+ (the standard library only).
   instruction/function that the decompiler reads, not how it is rendered
 - performance on multi-megabyte binaries
 
-The mock's `CHCOL_*` numeric values and the demangler are approximations. The
+The mock's `CHCOL_*`/`GCRF_*` numeric values and the demangler are
+approximations. The
 plugin resolves these constants through `chcol()` and falls back to the raw
 mangled name, so the tests describe the behaviour but not the exact IDA output.
 

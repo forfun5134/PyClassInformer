@@ -262,6 +262,75 @@ class TestMethodTree(unittest.TestCase):
         for i in range(self.tree.OnGetSize()):
             self.assertEqual(self.tree.OnGetEA(i), self.tree.items[i][-1])
 
+    def test_dirtree_can_be_walked_recursively(self):
+        """dirtree_utils.get_full_paths() must find every item of the tree."""
+        import pyclassinformer.dirtree_utils as dirtree_utils
+        paths = [path for path, de, cur in
+                 dirtree_utils.get_full_paths(self.tree.dirtree, recurse=True)]
+        self.assertEqual(sorted(paths), sorted(self.tree.dirtree.entries))
+        for folder in ("virtual methods/", "vftable/", "RTTI/"):
+            self.assertTrue(any(folder in path for path in paths), folder)
+        # the items are files, so a non recursive walk from the root finds none
+        self.assertEqual(list(dirtree_utils.get_full_paths(self.tree.dirtree)), [])
+
+    def test_item_can_be_located_by_inode(self):
+        """dirtree_utils.get_abs_path_by_inode()/get_parent_dir_by_inode()."""
+        import pyclassinformer.dirtree_utils as dirtree_utils
+        dirpath, name = self.tree.dirspec.inodes[0]
+        inode = self.tree.dirspec.get_inode(dirpath, name)
+        abs_path = dirtree_utils.get_abs_path_by_inode(self.tree.dirtree, inode)
+        self.assertTrue(abs_path.endswith("/" + name), abs_path)
+        self.assertEqual(dirtree_utils.get_parent_dir_by_inode(self.tree.dirtree, inode),
+                         dirpath.rstrip("/"))
+
+
+class TestDirtreeMoves(unittest.TestCase):
+    """Moving the functions into class folders (mvvm/mvcd, IDA 7.7 or later)."""
+
+    def _run(self, **kwargs):
+        img, expected = harness.build(harness.SI_CLASSES, x64=True)
+        import pyclassinformer.pyclassinformer as pci
+        import pyclassinformer.pci_config as pci_config
+        _, output = harness.capture_stdout(
+            pci.run_pci, config=pci_config.pci_config(rnvm=True, rncd=True, **kwargs))
+        return img, harness.quiet(harness.parse, img), output
+
+    def test_virtual_methods_are_moved_into_the_class_folder(self):
+        img, result, output = self._run(mvvm=True, mvcd=False, exana=False)
+        import ida_dirtree
+        import pyclassinformer.dirtree_utils as dirtree_utils
+        tree = ida_dirtree.get_std_dirtree(ida_dirtree.DIRTREE_FUNCS)
+        paths = {path for path, de, cur in dirtree_utils.get_full_paths(tree, recurse=True)}
+        self.assertIn("/classes/Animal/virtual methods/Animal::speak", paths)
+        self.assertIn("/classes/Dog/virtual methods/Dog::fetch", paths)
+        # 4 virtual methods are moved in both the Functions and the Names tree
+        self.assertIn("moved 8 entries", output)
+
+    def test_ctors_are_moved_into_their_own_folder(self):
+        img, result, output = self._run(mvvm=False, mvcd=True, exana=False)
+        import ida_dirtree
+        import pyclassinformer.dirtree_utils as dirtree_utils
+        tree = ida_dirtree.get_std_dirtree(ida_dirtree.DIRTREE_FUNCS)
+        paths = {path for path, de, cur in dirtree_utils.get_full_paths(tree, recurse=True)}
+        self.assertIn("/classes/Animal/possible ctors or dtors/Animal::ctor", paths)
+        self.assertIn("moved 4 entries", output)
+
+    def test_moves_are_idempotent(self):
+        """A second run must not move the same function again."""
+        img, expected = harness.build(harness.MI_CLASSES, x64=True)
+        import pyclassinformer.pyclassinformer as pci
+        harness.capture_stdout(pci.run_pci)
+        _, output = harness.capture_stdout(pci.run_pci)
+        self.assertIn("moved 0 entries", output)
+
+    def test_nothing_is_moved_without_the_option(self):
+        img, result, output = self._run(mvvm=False, mvcd=False, exana=False)
+        import ida_dirtree
+        import pyclassinformer.dirtree_utils as dirtree_utils
+        tree = ida_dirtree.get_std_dirtree(ida_dirtree.DIRTREE_FUNCS)
+        paths = [path for path, de, cur in dirtree_utils.get_full_paths(tree, recurse=True)]
+        self.assertFalse([p for p in paths if p.startswith("/classes/")], paths)
+
 
 if __name__ == "__main__":
     unittest.main()
