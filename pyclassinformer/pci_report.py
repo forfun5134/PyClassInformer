@@ -68,7 +68,12 @@ def sorted_vftables(result):
 
 
 def hierarchy_summary(col, data, u=None):
-    """``Foo: Bar, Baz;`` style description of the base classes of a vftable."""
+    """``Dog: Animal, NS::Base;`` style description of the base classes.
+
+    The first entry of the base class list is the class itself, except for the
+    vftable of a base subobject (multiple inheritance), where it is the base
+    class that owns the vftable.  Both cases are handled.
+    """
     if u is None:
         u = get_utils()
     try:
@@ -76,18 +81,15 @@ def hierarchy_summary(col, data, u=None):
     except Exception:
         bases = []
 
-    result = "{}: ".format(col.name)
-    if len(bases) > 0:
-        # replace the class name with the first BCD's class name if they are
-        # different from each other.  It occurs when the class is multiple
-        # inheritance with multiple vftables
-        i = 1
-        if bases[0].name != col.name:
-            result = "{}: ".format(bases[0].name)
+    names = [b.name for b in bases]
+    head = col.name
+    if names and names[0] != head:
+        head = names[0]
+    rest = names[1:]
 
-        # get the result related to the offset of the COL
-        result += ", ".join([x.name for x in bases][i:]) + ";" if len(bases) > 1 else ""
-    return result
+    if not rest:
+        return head
+    return "{}: {};".format(head, ", ".join(rest))
 
 
 def hierarchy_order(col):

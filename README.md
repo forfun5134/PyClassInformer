@@ -268,7 +268,9 @@ The changes above were checked against Hex-Rays' documentation for 9.5:
   `struc_t`/`member_t` -> `tinfo_t`/`udm_t`. This is what `ida_compat.py` uses.
 - [IDAPython API reference](https://python.docs.hex-rays.com/):
   `ida_typeinf.apply_tinfo(ea, tif, flags)`, `udm_t.offset`/`size` in *bits*,
-  `Choose`/`Form`/action APIs.
+  `Choose.OnGetLineAttr(n)` (still there in 9.5, returns `(color, flags)`),
+  `CH_TM_FULL_TREE`, `ida_dirtree.get_std_dirtree()`, `ida_xref.XREF_DATA`.
+  The plugin only uses APIs that are documented for 9.5.
 
 Two regressions were found this way and fixed: a `del_items()` call that used
 `DELIT_DELNAMES` (it deleted IDA's own `??_R0?AVFoo@@` type-descriptor names)
