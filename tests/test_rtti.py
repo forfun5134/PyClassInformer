@@ -59,6 +59,28 @@ class TestSingleInheritance(unittest.TestCase):
         for ea, info in self.expected["vftables"].items():
             self.assertEqual(ida_name.get_name(info["col_ptr"]), "vtable__" + info["class"])
 
+    def test_parse_on_a_subrange(self):
+        """The scan must find a vftable anywhere in the scanned range."""
+        import pyclassinformer.msvc_rtti as msvc_rtti
+        ptr = 8
+        for ea, info in self.expected["vftables"].items():
+            sub = harness.quiet(msvc_rtti.rtti_parser.parse, ea, ea + ptr * 3)
+            self.assertIn(ea, sub)
+            self.assertEqual(sub[ea].name, info["class"])
+
+    def test_col_group_cache(self):
+        """The COL grouping cache must follow the result dictionary."""
+        import pyclassinformer.pci_utils as pci_utils
+        u = pci_utils.utils.get()
+        ea = sorted(self.result)[0]
+        col = self.result[ea]
+        self.assertEqual(u.get_col_offs(col, self.result), [0])
+        # a copy of the dictionary is a different cache key and must work too
+        copy = dict(self.result)
+        self.assertEqual(u.get_col_offs(copy[ea], copy), [0])
+        # ... and the cached result must not leak into the next dictionary
+        self.assertEqual(u.get_col_offs(col, self.result), [0])
+
     def test_existing_names_are_preserved(self):
         """Applying the RTTI structures must not delete IDA's names."""
         import ida_name

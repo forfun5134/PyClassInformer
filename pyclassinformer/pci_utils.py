@@ -144,6 +144,9 @@ class utils(object):
     #: cache of instances, keyed by the currently opened database
     _instances = {}
 
+    #: cache for get_cols_by_col(): (result dict, {(tdea, chdea): [COL]})
+    _cols_cache = None
+
     def __init__(self):
         self.text = ida_segment.get_segm_by_name(".text")
         if self.text is None:
@@ -352,8 +355,7 @@ class utils(object):
             # ida_typeinf.udm_t stores offsets in bits
             return member.offset // 8
 
-    @classmethod
-    def get_cols_by_col(cls, col, vftables):
+    def get_cols_by_col(self, col, vftables):
         """Return every COL that belongs to the same class as ``col``.
 
         A class with multiple vftables (multiple inheritance) has one COL per
@@ -361,24 +363,48 @@ class utils(object):
         class hierarchy descriptor.  Grouping the COLs this way is much more
         reliable than the xref based detection alone, which depends on how IDA
         happened to create the references.
+
+        The grouping is cached per result dictionary: without it, looking up
+        the COLs of every vftable is quadratic (one full pass per vftable),
+        which is slow on binaries with hundreds of classes.
         """
-        cols = {}
-        for other in vftables.values():
-            if other is col:
+        tdea = getattr(col, "tdea", None)
+        chdea = getattr(col, "chdea", None)
+
+        cols = None
+        if tdea is not None and chdea is not None:
+            groups = self._col_groups(vftables)
+            key = (tdea, chdea)
+            cols = {}
+            for other in groups.get(key, ()):
                 cols[other.ea] = other
-                continue
-            try:
-                same_td = other.tdea != ida_idaapi.BADADDR and other.tdea == col.tdea
-                same_chd = other.chdea != ida_idaapi.BADADDR and other.chdea == col.chdea
-            except AttributeError:
-                continue
-            if same_td or same_chd:
+            for other in groups.get((tdea, None), ()):
                 cols[other.ea] = other
+            for other in groups.get((None, chdea), ()):
+                cols[other.ea] = other
+            cols[col.ea] = col
+            if not cols:
+                cols = None
+
+        if cols is None:
+            # generic fall back for objects without the RTTI descriptors
+            cols = {}
+            for other in vftables.values():
+                if other is col:
+                    cols[other.ea] = other
+                    continue
+                try:
+                    same_td = other.tdea != ida_idaapi.BADADDR and other.tdea == col.tdea
+                    same_chd = other.chdea != ida_idaapi.BADADDR and other.chdea == col.chdea
+                except AttributeError:
+                    continue
+                if same_td or same_chd:
+                    cols[other.ea] = other
 
         # xref based detection, as a fallback for caller provided COL objects
         try:
-            x = set(cls.get_refs_to(col.tdea))
-            y = set(cls.get_refs_to(col.tid))
+            x = set(self.get_refs_to(col.tdea))
+            y = set(self.get_refs_to(col.tid))
             for other in vftables.values():
                 if other.ea in (x & y):
                     cols[other.ea] = other
@@ -387,8 +413,21 @@ class utils(object):
 
         return sorted(cols.values(), key=lambda c: (c.offset, c.ea))
 
-    @classmethod
-    def get_col_offs_by_cols(cls, cols):
+    def _col_groups(self, vftables):
+        """Cache of ``(tdea, chdea) -> [COL]`` for the given result dictionary."""
+        cache = getattr(self, "_cols_cache", None)
+        if cache is not None and cache[0] is vftables:
+            return cache[1]
+
+        groups = {}
+        for other in vftables.values():
+            tdea = getattr(other, "tdea", None)
+            chdea = getattr(other, "chdea", None)
+            groups.setdefault((tdea, chdea), []).append(other)
+        self._cols_cache = (vftables, groups)
+        return groups
+
+    def get_col_offs_by_cols(self, cols):
         col_offs = []
         for col in cols:
             # the offset of the "offset" member is known from the layout spec
@@ -399,7 +438,7 @@ class utils(object):
             except AttributeError:
                 off = None
             if off is None:
-                off = cls.get_moff_by_name(getattr(col, "struc", None), "offset")
+                off = self.get_moff_by_name(getattr(col, "struc", None), "offset")
             if off is None or off < 0:
                 # RTTICompleteObjectLocator::offset follows signature in both
                 # bitnesses (0, then 4)
@@ -407,17 +446,15 @@ class utils(object):
             col_offs.append(ida_bytes.get_32bit(col.ea + off))
         return col_offs
 
-    @classmethod
-    def get_col_offs(cls, col, vftables):
-        cols = cls.get_cols_by_col(col, vftables)
+    def get_col_offs(self, col, vftables):
+        cols = self.get_cols_by_col(col, vftables)
         # get the offsets in COLs
-        col_offs = cls.get_col_offs_by_cols(cols)
+        col_offs = self.get_col_offs_by_cols(cols)
         return col_offs
 
-    @classmethod
-    def get_col_bases(cls, col, vftables):
+    def get_col_bases(self, col, vftables):
         # for checking if a class has multiple vftables or not
-        col_offs = cls.get_col_offs(col, vftables)
+        col_offs = self.get_col_offs(col, vftables)
 
         bases = []
         paths = col.chd.bca.paths.get(col.offset, [])

@@ -164,6 +164,8 @@ and every hierarchy path of the class:
   "generated": "2026-11-08T10:30:00",
   "input_file": "C:/samples/sample.exe",
   "imagebase": 5368709120,
+  "plugin_version": "1.1",
+  "ida_version": "9.5",
   "architecture": "x64",
   "summary": {"vftables": 812, "classes": 640, "vfuncs": 4210, "...": "..."},
   "vftables": [
@@ -204,6 +206,9 @@ not per vftable): `vftables`, `classes`,
 `pdisp` and `vdisp`), `all_hierarchy_paths` the paths of every vftable of the
 class.
 
+`architecture` is `x86`, `x64`, `arm` or `arm64` (it is derived from the
+processor name, not only from the bitness).
+
 The CSV export contains the same rows as the result list (identical column
 order, UTF-8 with BOM so that spreadsheet applications show the class names
 correctly). The text export is a readable list plus the summary.
@@ -218,10 +223,14 @@ keep working the same way):
   binding is available (e.g. idat, IDA free) the plugin still loads and only the
   toolbar icon hook is skipped.
 - **`ida_struct`/`ida_enum` are gone** (removed in 9.0). Structures are created
-  through `ida_typeinf`/`idc` with a layout computed in Python
-  (`ida_compat.compute_layout`), so RTTI is parsed even if the database refuses
-  the type. On IDA 8.4 and older the legacy structure API is used when
-  available (`PREFER_LEGACY_STRUCT_API`).
+  with a layout computed in Python (`ida_compat.compute_layout`), so RTTI is
+  parsed even if the database refuses the type. The backend follows the
+  official guidance (`IDAPython porting guide for IDA 9`): the `idc` wrappers
+  (`add_struc`/`add_struc_member`) up to IDA 8.4, and
+  `tinfo_t.create_udt()`/`tinfo_t.add_udm()` from IDA 9.0 on. Set
+  `ida_compat.PREFER_LEGACY_STRUCT_API` to `True`/`False` to force one of them.
+  `tinfo_t.set_named_type()` may return a `terr_t` (where `TERR_OK == 0`), which
+  is handled by `ida_compat.terr_ok()`.
 - **`XrefsTo()` reports Thumb/MIPS16 function pointers as `address + 1`** on
   ARM since 9.5. The plugin passes `ida_xref.XREF_EXACT` when available, so a
   vftable is not reported twice and constructors are not missed; 32 bit ARM
@@ -244,6 +253,29 @@ behaviors that differ from older releases of this plugin:
    IDA for the next slot with an xref, which returned a single method per
    vftable in databases where the method slots had no xrefs.
 
+### Review against the official documentation
+The changes above were checked against Hex-Rays' documentation for 9.5:
+
+- [IDA 9.5 release notes](https://docs.hex-rays.com/release-notes/9_5): Qt 6.12
+  / PySide6, `XREF_EXACT` and the Thumb/MIPS16 xrefs, the installation
+  manifests, the removed `ida_struct`/`ida_enum`, the new class API (Dalvik is
+  its first backend, so it does not replace an MSVC RTTI parser), the new
+  `export_listing` API, `ask_file("","")` crash fix, plugin directory ordering
+  fix. The 9.5 notes do **not** announce a `Choose` callback change.
+- [IDAPython porting guide for IDA 9](https://docs.hex-rays.com/developer/idapython/how-tos/idapython-porting-guide-ida-9):
+  `add_struc` -> `tinfo_t.create_udt`, `add_struc_member` -> `tinfo_t.add_udm`,
+  `get_struc_id` -> `get_named_type_tid`, `del_struc` -> `del_named_type`, and
+  `struc_t`/`member_t` -> `tinfo_t`/`udm_t`. This is what `ida_compat.py` uses.
+- [IDAPython API reference](https://python.docs.hex-rays.com/):
+  `ida_typeinf.apply_tinfo(ea, tif, flags)`, `udm_t.offset`/`size` in *bits*,
+  `Choose`/`Form`/action APIs.
+
+Two regressions were found this way and fixed: a `del_items()` call that used
+`DELIT_DELNAMES` (it deleted IDA's own `??_R0?AVFoo@@` type-descriptor names)
+and a `set_named_type()` return value that was read as a boolean although it is
+a `terr_t` (this made the plugin silently fall back to the legacy structure
+backend). Both are covered by tests now.
+
 ## Testing without IDA
 The repository ships an offline test harness. It contains a small model of the
 IDAPython 9.5 API (`tests/mock_ida`) and a builder for synthetic MSVC RTTI
@@ -251,7 +283,7 @@ images (`tests/fakepe.py`), so the parser, the report writers and the UI
 classes can be exercised on any machine:
 
 ```bash
-python3 tests/run_tests.py        # 76 tests, no IDA required
+python3 tests/run_tests.py        # 87 tests, no IDA required
 python3 tests/run_tests.py -v
 ```
 
