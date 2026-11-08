@@ -137,7 +137,11 @@ class pci_plugin_t(ida_idaapi.plugin_t):
 
     # for old IDA til 7.6
     def term(self):
-        self.plugin_mod.term()
+        # term() may arrive without a successful init() (a failed load, and
+        # IDA deletes the plugin object even then)
+        plugin_mod = getattr(self, "plugin_mod", None)
+        if plugin_mod is not None:
+            plugin_mod.term()
 
 
 class pci_plugmod_t(g_obj):
@@ -156,11 +160,25 @@ class pci_plugmod_t(g_obj):
         self.detatch_from_menu_and_toolbar()
 
     def detatch_from_menu_and_toolbar(self):
-        ida_kernwin.detach_action_from_toolbar(self.toolbar_name, self.action_name)
-        ida_kernwin.delete_toolbar(self.toolbar_name)
-        ida_kernwin.detach_action_from_menu(self.menu_path, self.action_name)
-        ida_kernwin.free_custom_icon(self.act_icon)
-        ida_kernwin.unregister_action(self.action_name)
+        # term() runs on a plugin reload and while IDA shuts down (from
+        # __del__), when the UI may already be gone and nothing was
+        # registered: every step is guarded so that the cleanup itself never
+        # produces an error.
+        for step in (
+            lambda: ida_kernwin.detach_action_from_toolbar(self.toolbar_name, self.action_name),
+            lambda: ida_kernwin.delete_toolbar(self.toolbar_name),
+            lambda: ida_kernwin.detach_action_from_menu(self.menu_path, self.action_name),
+            lambda: ida_kernwin.unregister_action(self.action_name),
+        ):
+            try:
+                step()
+            except Exception:
+                pass
+        if self.act_icon not in (-1, None):
+            try:
+                ida_kernwin.free_custom_icon(self.act_icon)
+            except Exception:
+                pass
 
     @staticmethod
     def run_pci(icon=-1):

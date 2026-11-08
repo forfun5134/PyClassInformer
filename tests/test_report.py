@@ -64,6 +64,23 @@ class TestReport(unittest.TestCase):
         self.assertEqual(doc["vftables"], [])
         self.assertEqual(doc["summary"]["vftables"], 0)
 
+    def test_hierarchy_column_is_the_comment_text(self):
+        """The column has no trailing ';' and matches the annotation text."""
+        u = self.report.get_utils()
+        texts = {(col.name, col.offset): self.report.hierarchy_summary(col, self.result, u)
+                 for col in self.result.values()}
+        self.assertEqual(texts[("Base1", 0)], "Base1")
+        self.assertEqual(texts[("Derived", 0)], "Derived: Base1")
+        self.assertFalse(any(text.endswith(";") for text in texts.values()), texts)
+
+    def test_hierarchy_column_names_the_owning_base_class(self):
+        """The vftable of a base subobject is grouped with its base class."""
+        u = self.report.get_utils()
+        cols = [col for col in self.result.values()
+                if col.name == "Derived" and col.offset == 0x8]
+        self.assertEqual(len(cols), 1)
+        self.assertEqual(self.report.hierarchy_summary(cols[0], self.result, u), "Base2")
+
     def test_csv_header_matches_columns(self):
         rows = list(csv.reader(io.StringIO(self.report.build_csv(self.result))))
         self.assertEqual(rows[0], [c["title"] for c in self.report.COLUMNS])
@@ -84,6 +101,17 @@ class TestReport(unittest.TestCase):
         self.assertEqual(len(csv_rows), len(expected_rows))
         for csv_row, values in zip(csv_rows, expected_rows):
             self.assertEqual(csv_row, values)
+
+    def test_text_report_is_labelled(self):
+        """The dump can be pasted into a bug report: every field is named."""
+        text = self.report.build_text(self.result)
+        self.assertIn("vftable 0x", text)
+        self.assertIn("COL 0x", text)
+        self.assertNotIn("vtable at :", text)
+        for field in ("signature ", "offset ", "cdOffset ", "TD 0x", "CHD 0x",
+                      "mdisp ", "pdisp ", "vdisp ", "contained ", "attributes "):
+            self.assertIn(field, text)
+        self.assertIn("attributes 0x1 (MULTINH)", text)
 
     def test_text_report(self):
         text = self.report.build_text(self.result)

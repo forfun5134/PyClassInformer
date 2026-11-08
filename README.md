@@ -82,8 +82,18 @@ Another one named "Hierarchy Order" shows class hierarchy information related to
 These are useful for grasping class layouts and class hierarchies. Double-clicking a line navigates to its vftable address as well.
 
 ### RTTI parsed results
-If you check the Output window, you will also see parsed RTTI information such as Complete Object Locator as COL, Class Hierarchy Descriptor as CHD and Base Class Descriptor as BCD with their addresses. They are useful for checking more details and debugging.  
+If you check the Output window, you will also see parsed RTTI information such as Complete Object Locator as COL, Class Hierarchy Descriptor as CHD and Base Class Descriptor as BCD with their addresses. They are useful for checking more details and debugging. Every field is labelled, so the dump can be pasted into a bug report as it is (the screenshot below still shows the older, unlabelled format):  
   
+```
+vftable 0x1400031c8 (Derived)
+  COL 0x1400031a8: signature 0x1, offset 0x8, cdOffset 0x0, TD 0x140003038, CHD 0x1400030b8, self 0x1400031a8
+    TD 0x140003038: Derived (.?AVDerived@@)
+    CHD 0x1400030b8: signature 0x0, attributes 0x1 (MULTINH), entries 3, BCA 0x1400030c8
+    BCD 0x1400030d4: Derived, mdisp 0, pdisp -1, vdisp 0, TD 0x140003038, contained 2, attributes 64 (HASPCHD), CHD 0x1400030b8
+      BCD 0x1400030f0: Base1, mdisp 0, pdisp -1, vdisp 0, TD 0x140003000, contained 0, attributes 64 (HASPCHD), CHD 0x1400030b8
+      BCD 0x14000310c: Base2, mdisp 8, pdisp -1, vdisp 0, TD 0x14000301c, contained 0, attributes 64 (HASPCHD), CHD 0x1400030b8
+```
+
 ![Class Hierarchy](/images/class_hierarchy.png)  
 
 You will also see class hierarchies by checking indents of BCDs. For example, CMFCComObject, which is the class for the vftable at 0x530fcc, inherits ATL::CAccessibleProxy. And ATL::CAccessibleProxy inherits three super classes, ATL::CComObjectRootEx, ATL::IAccessibleProxyImpl and IOleWindow. Like this, you can get class hierarchy information as a form of a tree.
@@ -117,10 +127,12 @@ turned off with the "Add comments ..." option):
 | `RTTITypeDescriptor`, `RTTIClassHierarchyDescriptor`, `RTTIBaseClassDescriptor`, `RTTIBaseClassArray`, `RTTICompleteObjectLocator` | description of every field | Local Types view (type comment) |
 
 **The inheritance is part of the comments**, not only of the list and the tree:
-`Dog: Animal` is the same text as the "Hierarchy" column, and for multiple
-inheritance every base class is listed in the order of the base class array
-(`Derived: Base1, Base2`). A vftable that belongs to a base class subobject
-says so as well:
+`Dog: Animal` is the same text as the "Hierarchy" column of the result list, and
+for multiple inheritance every base class is listed in the order of the base
+class array (`Derived: Base1, Base2`). (The column groups the classes that
+share one vftable - so for the vftable of a base subobject it names the owning
+base class, while the comment always describes the whole class and adds the
+subobject.) A vftable that belongs to a base class subobject says so as well:
 
 ```
 [PyClassInformer] virtual method of Derived (Derived: Base1, Base2; subobject: Base2 at +0x8)
@@ -279,7 +291,8 @@ processor name, not only from the bitness).
 
 The CSV export contains the same rows as the result list (identical column
 order, UTF-8 with BOM so that spreadsheet applications show the class names
-correctly). The text export is a readable list plus the summary.
+correctly). The text export is the labelled RTTI dump of the Output window plus
+the summary.
 
 ## IDA 9.5 compatibility notes
 IDA 9.5 (build 9.5.261026) changed several things that affect this plugin. All
@@ -384,7 +397,7 @@ images (`tests/fakepe.py`), so the parser, the report writers and the UI
 classes can be exercised on any machine:
 
 ```bash
-python3 tests/run_tests.py        # 146 tests, no IDA required
+python3 tests/run_tests.py        # 151 tests, no IDA required
 python3 tests/run_tests.py -v
 ```
 

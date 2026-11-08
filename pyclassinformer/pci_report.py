@@ -68,11 +68,11 @@ def sorted_vftables(result):
 
 
 def hierarchy_summary(col, data, u=None):
-    """``Dog: Animal, NS::Base;`` style description of the base classes.
+    """``Dog: Animal, NS::Base`` style description of the base classes.
 
-    The first entry of the base class list is the class itself, except for the
-    vftable of a base subobject (multiple inheritance), where it is the base
-    class that owns the vftable.  Both cases are handled.
+    The entries are the classes that share this vftable: the class itself
+    first, except for the vftable of a base subobject (multiple inheritance),
+    where the owning base class comes first.  Both cases are handled.
     """
     if u is None:
         u = get_utils()
@@ -89,7 +89,7 @@ def hierarchy_summary(col, data, u=None):
 
     if not rest:
         return head
-    return "{}: {};".format(head, ", ".join(rest))
+    return "{}: {}".format(head, ", ".join(rest))
 
 
 def hierarchy_order(col):

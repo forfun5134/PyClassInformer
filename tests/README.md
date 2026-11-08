@@ -37,6 +37,10 @@ Requires nothing but Python 3.8+ (the standard library only).
 - that invalid candidates leave the database untouched
 - JSON/CSV/text exports, including the "nothing to export" paths
 - renaming of virtual methods/ctors and the `FUNC_LIB` flag for library classes
+- the textual dump of the Output window (every field is labelled), the summary
+  counters and the JSON/CSV/text reports
+- the plugin entry point: creating, reloading and deleting it (term() twice, or
+  without a successful init(), must not raise)
 - the annotations: the text of the vftable slot, ctor/dtor, method and type
   comments (including the class hierarchy, the base subobject offsets, the
   pure virtual count and the CHD flags), that a second run adds nothing, that

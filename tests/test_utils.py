@@ -322,6 +322,17 @@ class TestPluginEntry(unittest.TestCase):
         self.assertIn("Edit/Plugins/", [m[0] for m in ida_kernwin.MENU_ATTACHMENTS])
         plugin.term()
 
+    def test_term_without_init_is_harmless(self):
+        """IDA deletes the plugin object even when the load failed."""
+        plugin = self.plugin.PLUGIN_ENTRY()
+        plugin.term()                      # nothing was registered yet
+
+    def test_double_term_is_harmless(self):
+        plugin = self.plugin.PLUGIN_ENTRY()
+        plugin.init()
+        plugin.term()
+        plugin.term()
+
     def test_plugin_can_be_reloaded(self):
         plugin = self.plugin.PLUGIN_ENTRY()
         plugin.init()

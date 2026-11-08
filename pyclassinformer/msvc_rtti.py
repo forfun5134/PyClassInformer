@@ -133,6 +133,15 @@ def flags_to_names(attributes, table):
     return "|".join(name for bit, _, name in table if attributes & bit)
 
 
+def _flag_suffix(names):
+    """``" (MULTINH)"`` for a flag name string or list (empty when no flag)."""
+    if not names:
+        return ""
+    if isinstance(names, str):
+        return " (%s)" % names
+    return " ({})".format("|".join(names))
+
+
 def strip(name):
     """Return the bare class name of a demangled RTTI type descriptor.
 
@@ -1106,36 +1115,44 @@ class rtti_parser(object):
     # ------------------------------------------------------------------
     @staticmethod
     def render(result, verbose=False):
-        """Return the textual RTTI report (what :meth:`show` prints)."""
+        """Return the textual RTTI report (what :meth:`show` prints).
+
+        Every field is labelled: the raw order of the structures is easy to
+        print but hard to read, and the same dump is meant to be pasted into a
+        bug report.
+        """
         out = []
         add = out.append
         for vtable in result:
             col = result[vtable]
-            add("vtable at : " + hex(vtable))
-            add("  COL at {:#x}: {} {} {} {} {:#x} {:#x}{}".format(
-                col.ea, col.name, col.sig, col.offset, col.cdOffset,
-                col.tdea, col.chdea,
-                " " + hex(col.selfea) if col.selfea != ida_idaapi.BADADDR else ""))
+            add("vftable {:#x} ({})".format(vtable, col.name))
+            add("  COL {:#x}: signature {:#x}, offset {:#x}, cdOffset {:#x}, "
+                "TD {:#x}, CHD {:#x}{}".format(
+                    col.ea, col.sig, col.offset, col.cdOffset, col.tdea, col.chdea,
+                    ", self {:#x}".format(col.selfea)
+                    if col.selfea != ida_idaapi.BADADDR else ""))
 
             if col.td is not None:
-                add("    TD  at {:#x}: {}{}".format(
-                    col.td.ea, col.td.demangled,
-                    " (%s)" % col.td.mangled if col.td.mangled else ""))
+                add("    TD {:#x}: {}{}".format(
+                    col.td.ea, col.td.class_name or col.td.demangled,
+                    " ({})".format(col.td.mangled) if col.td.mangled else ""))
 
             if col.chd is not None:
-                add("    CHD at {:#x}: {:#x} {}{} {} {:#x}".format(
-                    col.chd.ea, col.chd.sig,
-                    col.chd.flags,
-                    " (%s)" % col.chd.flag_names if col.chd.flag_names else "",
-                    col.chd.nb_classes, col.chd.bcaea))
+                add("    CHD {:#x}: signature {:#x}, attributes {:#x}{}, "
+                    "entries {}, BCA {:#x}".format(
+                        col.chd.ea, col.chd.sig, col.chd.attribute,
+                        _flag_suffix(col.chd.flag_names), col.chd.nb_classes,
+                        col.chd.bcaea))
 
                 # get BCDs
                 for bcd in col.bases:
-                    add("    {}BCD at {:#x}: {} {} {:#x} {} {}{}{}".format(
-                        " " * bcd.depth * 2, bcd.ea, bcd.name, bcd.pmd, bcd.tdea,
-                        bcd.nb_cbs, bcd.attributes,
-                        " (%s)" % bcd.flag_names if bcd.flag_names else "",
-                        " " + hex(bcd.chdea) if bcd.chdea != ida_idaapi.BADADDR else ""))
+                    add("    {}BCD {:#x}: {}, mdisp {}, pdisp {}, vdisp {}, "
+                        "TD {:#x}, contained {}, attributes {}{}{}".format(
+                            " " * bcd.depth * 2, bcd.ea, bcd.name, bcd.mdisp,
+                            bcd.pdisp, bcd.vdisp, bcd.tdea, bcd.nb_cbs,
+                            bcd.attributes, _flag_suffix(bcd.flag_names),
+                            ", CHD {:#x}".format(bcd.chdea)
+                            if bcd.chdea != ida_idaapi.BADADDR else ""))
 
             if not verbose:
                 continue
