@@ -105,12 +105,15 @@ turned off with the "Add comments ..." option):
 
 | Where | Comment | Visible in |
 |---|---|---|
-| virtual method slot of a vftable | `[PyClassInformer] Dog vtable slot 1: Dog::fetch` | disassembly of the vftable, Xrefs view |
-| RTTI pointer in front of the vftable | `[PyClassInformer] vftable of Dog (2 virtual methods; Dog: Animal)` | disassembly |
+| virtual method slot of a vftable | `[PyClassInformer] Dog vtable slot 1: Dog::fetch` (the vftable of a base subobject adds its offset: `Derived vtable (+0x8) slot 0: ...`) | disassembly of the vftable, Xrefs view |
+| RTTI pointer in front of the vftable | `[PyClassInformer] vftable of Dog (2 virtual methods; Dog: Animal)`, with the pure virtual count when there is one: `(2 virtual methods, 1 pure)` | disassembly |
 | instruction that loads the vftable (ctor/dtor) | `[PyClassInformer] vftable of Dog (possible constructor/destructor; Dog: Animal)` | **pseudocode** (Hex-Rays prints the comment of every statement) |
 | function that loads the vftable | `[PyClassInformer] possible constructor/destructor of Dog (Dog: Animal)` | pseudocode header, Functions view |
 | virtual method | `[PyClassInformer] virtual method of Dog (Dog: Animal)` | pseudocode header, Functions view |
-| complete object locator / type descriptor | `[PyClassInformer] complete object locator of Derived (offset 0x8, flags: MULTINH, hierarchy: Derived, Base1, Base2)` | disassembly |
+| complete object locator | `[PyClassInformer] complete object locator of Derived (offset 0x8, flags: MULTINH, hierarchy: Derived, Base1, Base2)` | disassembly |
+| type descriptor | `[PyClassInformer] type descriptor of Dog` | disassembly |
+| class hierarchy descriptor / base class array | `[PyClassInformer] class hierarchy descriptor of Derived (3 hierarchy entries, flags: MULTINH)`, `[PyClassInformer] base class array of Derived: Derived, Base1, Base2` | disassembly |
+| base class descriptor | `[PyClassInformer] base class Base2 of Derived (mdisp 8, pdisp -1, vdisp 0)` - the PMD values say where the subobject is | disassembly, the "hierarchy" folder of the Method Classifier (every node has a jumpable `BCD at 0x...` item) |
 | `RTTITypeDescriptor`, `RTTIClassHierarchyDescriptor`, `RTTIBaseClassDescriptor`, `RTTIBaseClassArray`, `RTTICompleteObjectLocator` | description of every field | Local Types view (type comment) |
 
 **The inheritance is part of the comments**, not only of the list and the tree:
@@ -126,6 +129,14 @@ says so as well:
 so a method seen in the pseudocode of the *primary* vftable of `Derived` and a
 method seen through the `Base2` subobject can be told apart at a glance. The
 CHD flags (`MULTINH`, `VIRTINH`, `AMBIG`) are added to the locator comment.
+
+Two details keep the comments useful instead of noisy:
+
+- the CRT's pure call stub (`_purecall`) belongs to every abstract class, so it
+  gets no function comment (the slot and the vftable comment already mark it);
+- when one function is a method of many classes, the comment lists the first
+  three and adds `and N more` (a shared MFC/STL method would otherwise produce a
+  comment with hundreds of names).
 
 Two rules make the annotations safe to use:
 
@@ -157,6 +168,12 @@ PyClassInformer also displays a new widget named "Method Classifier". It lists a
 > Unfortunately, IDA's quick filter feature cannot filter directory contents.
 > To search them, use text search feature (Ctrl+T (find first text) and Alt+T (Find next text)).
 > For example, input a class name, a single space, and a parenthesis like "CWinApp (".
+>
+> Every hierarchy node also contains a `BCD at 0x...` item: the directory itself
+> cannot be double clicked to jump, but this item jumps to the base class
+> descriptor (which carries a comment describing the base class and its PMD
+> values), and it can be found with the quick filter. The `CHD at 0x...` item
+> says how many entries the hierarchy has.
 
 > [!NOTE]
 > This is only available IDA 7.7 or later. 
@@ -367,7 +384,7 @@ images (`tests/fakepe.py`), so the parser, the report writers and the UI
 classes can be exercised on any machine:
 
 ```bash
-python3 tests/run_tests.py        # 138 tests, no IDA required
+python3 tests/run_tests.py        # 144 tests, no IDA required
 python3 tests/run_tests.py -v
 ```
 

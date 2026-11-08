@@ -11,7 +11,9 @@ place for this information is right where it is used:
 - the functions that reference a vftable get a function comment, and so do the
   virtual methods ("virtual method of Foo"), which Hex-Rays shows above the
   pseudocode.  These comments carry the inheritance information too, e.g.
-  "virtual method of Derived (Derived: Base1, Base2; subobject: Base2 at +0x8)";
+  "virtual method of Derived (Derived: Base1, Base2; subobject: Base2 at +0x8)".
+  The CRT's pure call stub is skipped: it belongs to every abstract class, so a
+  comment listing all of them would be useless and huge;
 - the five RTTI structures get a type comment, so they are documented in the
   Local Types view.
 
@@ -33,6 +35,9 @@ import pyclassinformer.pci_utils as pci_utils
 
 #: every comment this module creates starts with this prefix
 PREFIX = "[PyClassInformer]"
+
+#: how many classes a function comment lists before it says "and N more"
+MAX_ROLES = 3
 
 #: documentation of the RTTI structures (put in the Local Types view)
 TYPE_COMMENTS = (
@@ -90,7 +95,11 @@ def hierarchy_names(col):
     the order IDA/MSVC stores them (the same order as the "Hierarchy" column).
     """
     names = []
-    for bcd in getattr(col, "bases", None) or []:
+    try:
+        bases = getattr(col, "bases", None) or []
+    except Exception:
+        bases = []
+    for bcd in bases:
         name = getattr(bcd, "name", None)
         if name and name not in names:
             names.append(name)
@@ -261,9 +270,49 @@ def annotate(result, funcs=True, code=True, slots=True, types=True):
             if col.tdea != ida_idaapi.BADADDR:
                 set_code_comment(col.tdea, "type descriptor of {}".format(col.name), counters)
 
+            # the rest of the RTTI structures of this class (the items of the
+            # "RTTI" folder in the Method Classifier point here)
+            owner = names[0] if names else col.name
+            # a COL without a class hierarchy descriptor has no further
+            # structures to describe (the parser skips such candidates)
+            if getattr(col, "chd", None) is not None:
+                if col.chdea != ida_idaapi.BADADDR:
+                    # numBaseClasses counts the entries of the base class array
+                    # (the class itself included), which is what the tree shows
+                    count = getattr(col, "nb_bases", 0) or len(names)
+                    set_code_comment(col.chdea,
+                                     "class hierarchy descriptor of {} ({}{})".format(
+                                         owner,
+                                         _plural(count, "hierarchy entry",
+                                                 "hierarchy entries"),
+                                         ", flags: " + flags if flags else ""), counters)
+                if col.bcaea != ida_idaapi.BADADDR:
+                    set_code_comment(col.bcaea, "base class array of {}: {}".format(
+                        owner, ", ".join(names)), counters)
+                try:
+                    bcds = list(col.bases)
+                except Exception:
+                    bcds = []
+                for bcd in bcds:
+                    ea = getattr(bcd, "ea", ida_idaapi.BADADDR)
+                    if ea == ida_idaapi.BADADDR or ea is None:
+                        continue
+                    pmd = "mdisp {}, pdisp {}, vdisp {}".format(
+                        getattr(bcd, "mdisp", 0), getattr(bcd, "pdisp", 0),
+                        getattr(bcd, "vdisp", 0))
+                    if getattr(bcd, "name", None) == owner:
+                        text = "class hierarchy entry of {} ({})".format(owner, pmd)
+                    else:
+                        text = "base class {} of {} ({})".format(bcd.name, owner, pmd)
+                    set_code_comment(ea, text, counters)
+
             # the slot in front of the vftable holds the RTTI pointer
+            methods = _plural(len(col.vfeas), "virtual method")
+            pure = getattr(col, "pure_virtual_count", 0) or 0
+            if pure:
+                methods += ", {} pure".format(pure)
             set_code_comment(col.col_ptr_ea, "vftable of {}{}".format(
-                col.name, _note(col, _plural(len(col.vfeas), "virtual method"))), counters)
+                col.name, _note(col, methods)), counters)
 
             # the instructions that load the vftable address (ctors/dtors)
             for refea in getattr(col, "refaddrs", []):
@@ -271,12 +320,24 @@ def annotate(result, funcs=True, code=True, slots=True, types=True):
                     col.name, _note(col, "possible constructor/destructor")), counters)
 
         if slots:
+            # a class with several vftables (multiple inheritance) has one
+            # vftable per base subobject: name the offset so that the slots of
+            # the two vftables can be told apart
+            offset = getattr(col, "offset", 0) or 0
+            whose = "{} vtable".format(col.name)
+            if offset:
+                whose += " (+{:#x})".format(offset)
             for i, vfea in enumerate(col.vfeas):
-                set_code_comment(vtable + i * ptr_size, "{} vtable slot {}: {}".format(
-                    col.name, i, msvc_rtti.func_name(vfea) or hex(vfea)), counters)
+                set_code_comment(vtable + i * ptr_size, "{} slot {}: {}".format(
+                    whose, i, msvc_rtti.func_name(vfea) or hex(vfea)), counters)
 
         if funcs:
             for vfea in col.vfeas:
+                if msvc_rtti.is_pure_virtual(vfea):
+                    # the CRT's pure call stub is shared by every abstract
+                    # class: a comment listing all of them is useless (and
+                    # would be huge), the slot comment already marks it
+                    continue
                 add_role(vfea, "virtual method of {}{}".format(col.name, _note(col)))
             for refea in col.refeas:
                 add_role(refea, "possible constructor/destructor of {}{}".format(
@@ -286,6 +347,8 @@ def annotate(result, funcs=True, code=True, slots=True, types=True):
         # a function can be a virtual method of a class and a constructor
         # candidate of another one: one comment lists both roles
         for funcea, texts in roles.items():
+            if len(texts) > MAX_ROLES:
+                texts = texts[:MAX_ROLES] + ["and {} more".format(len(texts) - MAX_ROLES)]
             set_func_comment(funcea, "; ".join(texts), counters)
 
     if types:

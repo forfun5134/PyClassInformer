@@ -158,6 +158,30 @@ class TestMultipleInheritance(AnnotationBase):
         self.assertIn("[PyClassInformer] complete object locator of Base1 (offset 0x0)",
                       self.texts())
 
+    def test_the_rtti_structures_are_documented(self):
+        """CHD/BCA/BCD comments: the RTTI folder items explain themselves."""
+        self.ann.annotate(self.result)
+        texts = self.texts()
+        self.assertIn("[PyClassInformer] class hierarchy descriptor of Derived "
+                      "(3 hierarchy entries, flags: MULTINH)", texts)
+        self.assertIn("[PyClassInformer] base class array of Derived: "
+                      "Derived, Base1, Base2", texts)
+        # the BCD of a base class carries its position (mdisp is the offset)
+        self.assertIn("[PyClassInformer] base class Base2 of Derived "
+                      "(mdisp 8, pdisp -1, vdisp 0)", texts)
+        self.assertIn("[PyClassInformer] class hierarchy entry of Derived "
+                      "(mdisp 0, pdisp -1, vdisp 0)", texts)
+        # Base1 has no base classes of its own
+        self.assertIn("[PyClassInformer] class hierarchy descriptor of Base1 "
+                      "(1 hierarchy entry)", texts)
+
+    def test_slot_comments_distinguish_the_vftables(self):
+        """Both vftables of Derived must not produce identical slot comments."""
+        self.ann.annotate(self.result)
+        texts = self.texts()
+        self.assertIn("[PyClassInformer] Derived vtable slot 0: Derived::a1", texts)
+        self.assertIn("[PyClassInformer] Derived vtable (+0x8) slot 0: Derived::b1", texts)
+
     def test_hierarchy_helpers(self):
         derived = [col for col in self.result.values() if col.name == "Derived"]
         self.assertEqual(self.ann.hierarchy_names(derived[0]),
@@ -232,6 +256,52 @@ class TestRoles(AnnotationBase):
                          "[PyClassInformer] virtual method of Foo; "
                          "possible constructor/destructor of Bar")
         self.assertEqual(counters.get("func_comments"), 1)
+
+
+class TestManyOwners(unittest.TestCase):
+    """A function that belongs to many classes must not produce a huge comment."""
+
+    def test_pure_call_stub_is_not_annotated(self):
+        """_purecall belongs to every abstract class: no function comment."""
+        classes = [{"name": "Abstract", "bases": [], "vftables": [
+            {"offset": 0, "methods": ["_purecall", "Abstract::ok"]}]},
+                   {"name": "Other", "bases": [], "vftables": [
+                       {"offset": 0, "methods": ["_purecall", "Other::ok"]}]}]
+        img, expected = harness.build(classes, x64=True)
+        result = harness.quiet(harness.parse, img)
+        import image
+        import pyclassinformer.pci_annotate as pci_annotate
+        counters = pci_annotate.annotate(result)
+        purecall = None
+        import ida_funcs
+        for col in result.values():
+            for vfea in col.vfeas:
+                if ida_funcs.get_func_name(vfea) == "_purecall":
+                    self.assertNotIn((vfea, False), image.IMAGE.func_cmts)
+                    purecall = vfea
+        self.assertIsNotNone(purecall)
+        # ...but the slot and the vftable still say that there is a pure method
+        self.assertIn("[PyClassInformer] Abstract vtable slot 0: _purecall",
+                      image.IMAGE.cmts.values())
+        self.assertIn("[PyClassInformer] vftable of Abstract (2 virtual methods, 1 pure)",
+                      image.IMAGE.cmts.values())
+        self.assertGreater(counters["comments"], 0)
+
+    def test_class_list_is_capped(self):
+        classes = [{"name": "C%d" % i, "bases": [], "vftables": [
+            {"offset": 0, "methods": ["Shared::f", "C%d::g" % i]}]} for i in range(6)]
+        img, expected = harness.build(classes, x64=True)
+        result = harness.quiet(harness.parse, img)
+        import image
+        import pyclassinformer.pci_annotate as pci_annotate
+        pci_annotate.annotate(result)
+        shared = [v for v in image.IMAGE.func_cmts.values() if "virtual method of C0" in v
+                  and ";" in v]
+        self.assertEqual(len(shared), 1, image.IMAGE.func_cmts)
+        self.assertEqual(shared[0],
+                         "[PyClassInformer] virtual method of C0; virtual method of C1; "
+                         "virtual method of C2; and 3 more")
+        self.assertEqual(pci_annotate.MAX_ROLES, 3)
 
 
 class TestOptions(AnnotationBase):

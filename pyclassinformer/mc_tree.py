@@ -178,7 +178,9 @@ class mc_tree_t(ida_kernwin.Choose):
             self.add_item(dp, col.ea, "COL at {:#x}".format(col.ea))
             self.add_item(dp, col.tdea, "TD at {:#x}".format(col.tdea))
             if col.chd is not None:
-                self.add_item(dp, col.chdea, "CHD at {:#x}".format(col.chdea))
+                self.add_item(dp, col.chdea, "CHD at {:#x} ({} {})".format(
+                    col.chdea, col.nb_bases,
+                    "entry" if col.nb_bases == 1 else "entries"))
                 if col.chd.bca is not None:
                     self.add_item(dp, col.chd.bcaea, "BCA at {:#x}".format(col.chd.bcaea))
 
@@ -222,8 +224,11 @@ class mc_tree_t(ida_kernwin.Choose):
                             dp += " [{}]".format(flags)
                         self.dirtree.mkdir(dp + "/")  # needs the last slash for a directory
 
-                        # IDA seems not to apply quick filter to directories.
-                        # to avoid that, insert a text node as well if you want.
+                        # A directory cannot be double clicked to jump, and
+                        # IDA's quick filter does not match directory names.
+                        # Add the base class descriptor itself as an item so
+                        # that it can be reached (and searched) from here.
+                        self.add_item(dp + "/", bcd.ea, "BCD at {:#x}".format(bcd.ea))
 
     def OnInit(self):
         self.process_data()

@@ -258,6 +258,23 @@ class TestMethodTree(unittest.TestCase):
             self.assertIn("COL at {:#x}".format(col.ea), [r[1] for r in rows])
             self.assertIn(hex(col.ea), eas)
 
+    def test_bcd_items_are_reachable(self):
+        """Every base class descriptor of the hierarchy is a jumpable item."""
+        rows = self._rows()
+        texts = {r[1]: r[0] for r in rows}
+        bcds = [bcd for col in self.result.values() for bcd in col.bases]
+        self.assertTrue(bcds)
+        for bcd in bcds:
+            key = "BCD at {:#x}".format(bcd.ea)
+            self.assertIn(key, texts)
+            self.assertEqual(texts[key], hex(bcd.ea))
+
+    def test_chd_item_counts_the_hierarchy_entries(self):
+        rows = [r[1] for r in self._rows()]
+        derived = [text for text in rows if text.startswith("CHD at")]
+        self.assertTrue(any("(3 entries)" in text for text in derived), derived)
+        self.assertTrue(any("(1 entry)" in text for text in derived), derived)
+
     def test_ea_column_is_the_last_field(self):
         for i in range(self.tree.OnGetSize()):
             self.assertEqual(self.tree.OnGetEA(i), self.tree.items[i][-1])
