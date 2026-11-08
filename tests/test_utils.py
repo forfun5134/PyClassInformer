@@ -146,6 +146,40 @@ class TestQTUils(unittest.TestCase):
         self.assertTrue(qtutils.dark_mode_checker_t._is_dark_mode(0x00202020))
         self.assertFalse(qtutils.dark_mode_checker_t._is_dark_mode(0x00F0F0F0))
 
+    def test_binding_order_follows_the_ida_version(self):
+        # IDA 9.2+ is built with PySide6, older versions use PyQt5.  The
+        # matching binding must win, otherwise wrapping an IDA widget breaks.
+        import pyclassinformer.qtutils as qtutils
+        self.assertEqual(qtutils.ida_sdk_version(), 950)
+        self.assertIsNone(qtutils._import_qt())
+
+        calls = []
+        original_pyside, original_pyqt5, original_sdk = (
+            qtutils._import_pyside6, qtutils._import_pyqt5, qtutils.ida_sdk_version)
+
+        def fake_pyside():
+            calls.append("pyside6")
+            return ("pyside6",)
+
+        def fake_pyqt5():
+            calls.append("pyqt5")
+            return ("pyqt5",)
+
+        try:
+            qtutils._import_pyside6 = fake_pyside
+            qtutils._import_pyqt5 = fake_pyqt5
+            qtutils.ida_sdk_version = lambda: 950
+            self.assertEqual(qtutils._import_qt(), ("pyside6",))
+            qtutils.ida_sdk_version = lambda: 910
+            self.assertEqual(qtutils._import_qt(), ("pyqt5",))
+            # the other binding is only used when the preferred one is missing
+            qtutils._import_pyside6 = lambda: (_ for _ in ()).throw(ImportError())
+            self.assertEqual(qtutils._import_qt(), ("pyqt5",))
+        finally:
+            qtutils._import_pyside6 = original_pyside
+            qtutils._import_pyqt5 = original_pyqt5
+            qtutils.ida_sdk_version = original_sdk
+
 
 class TestLibClasses(unittest.TestCase):
 

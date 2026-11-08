@@ -5,6 +5,7 @@ use PyQt5.  Every helper here degrades gracefully (returns None/False) when Qt
 is not available at all, which is the case for idalib / text mode sessions.
 """
 
+import ida_idaapi
 import ida_kernwin
 
 try:
@@ -13,20 +14,44 @@ except NameError:
     ModuleNotFoundError = ImportError
 
 
+def ida_sdk_version():
+    """Return the SDK version of the running IDA (950 for IDA 9.5), or 0."""
+    try:
+        return int(getattr(ida_idaapi, "IDA_SDK_VERSION", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _import_pyqt5():
+    from sip import wrapinstance
+    from PyQt5 import QtCore, QtWidgets, QtGui
+    return ("pyqt5", QtCore, QtWidgets, QtGui, wrapinstance)
+
+
+def _import_pyside6():
+    from shiboken6 import wrapInstance as wrapinstance
+    from PySide6 import QtCore, QtWidgets, QtGui
+    return ("pyside6", QtCore, QtWidgets, QtGui, wrapinstance)
+
+
 def _import_qt():
-    """Return ``(binding, QtCore, QtWidgets, QtGui, wrapinstance)`` or None."""
-    try:
-        from sip import wrapinstance
-        from PyQt5 import QtCore, QtWidgets, QtGui
-        return ("pyqt5", QtCore, QtWidgets, QtGui, wrapinstance)
-    except ImportError:
-        pass
-    try:
-        from shiboken6 import wrapInstance as wrapinstance
-        from PySide6 import QtCore, QtWidgets, QtGui
-        return ("pyside6", QtCore, QtWidgets, QtGui, wrapinstance)
-    except ImportError:
-        return None
+    """Return ``(binding, QtCore, QtWidgets, QtGui, wrapinstance)`` or None.
+
+    The binding that matches the Qt version IDA itself was built with has to be
+    used: wrapping an IDA widget with the wrong binding produces a broken
+    object.  IDA 9.2 introduced PySide6 (and 9.5 ships Qt 6.12), older versions
+    use PyQt5, so the IDA version decides which one is tried first.  The other
+    one is only used as a fallback when the preferred binding is unavailable.
+    """
+    loaders = [_import_pyside6, _import_pyqt5]
+    if ida_sdk_version() < 920:
+        loaders.reverse()
+    for loader in loaders:
+        try:
+            return loader()
+        except ImportError:
+            continue
+    return None
 
 
 def _qt():
