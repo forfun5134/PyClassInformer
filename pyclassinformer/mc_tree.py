@@ -168,14 +168,17 @@ class mc_tree_t(ida_kernwin.Choose):
                     name = "vtable__" + class_name
             # add the actual class name information
             if class_name != actual_class_name:
-                name += " for {} ({})".format(actual_class_name, col.offset)
+                name += " for {} (+{:#x})".format(actual_class_name, col.offset)
             self.add_item(dp, vftable_ea, name, col.offset, col.cdOffset, col.flags,
                           col.nb_bases, col.pure_virtual_count, len(col.refeas))
 
             # RTTI relevant structures of the vftable (jumpable)
             dp = dirtree_path + "RTTI/"  # needs the last slash for a directory
             self.dirtree.mkdir(dp)
-            self.add_item(dp, col.ea, "COL at {:#x}".format(col.ea))
+            # a class with several vftables has one locator per vftable: name
+            # the class offset so that the two COL items can be told apart
+            self.add_item(dp, col.ea, "COL at {:#x}{}".format(
+                col.ea, " (+{:#x})".format(col.offset) if col.offset else ""))
             self.add_item(dp, col.tdea, "TD at {:#x}".format(col.tdea))
             if col.chd is not None:
                 self.add_item(dp, col.chdea, "CHD at {:#x} ({} {})".format(
@@ -195,7 +198,8 @@ class mc_tree_t(ida_kernwin.Choose):
                 # several vftables: give it its own folder
                 # (older versions appended "virtual methods/" a second time here,
                 # which created "virtual methods/virtual methods/")
-                dp += "virtual methods for {} ({})/".format(actual_class_name, col.offset)  # needs the last slash for a directory
+                # inside "virtual methods" the folder only names the subobject
+                dp += "for {} (+{:#x})/".format(actual_class_name, col.offset)  # needs the last slash for a directory
                 self.dirtree.mkdir(dp)
 
             # add virtual methods to the folder

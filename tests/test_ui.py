@@ -261,8 +261,28 @@ class TestMethodTree(unittest.TestCase):
         rows = self._rows()
         eas = {r[0] for r in rows}
         for col in self.result.values():
-            self.assertIn("COL at {:#x}".format(col.ea), [r[1] for r in rows])
+            expected = "COL at {:#x}".format(col.ea)
+            if col.offset:
+                expected += " (+{:#x})".format(col.offset)
+            self.assertIn(expected, [r[1] for r in rows])
             self.assertIn(hex(col.ea), eas)
+
+    def _paths(self):
+        out = {}
+        for i in range(self.tree.OnGetSize()):
+            dirpath, name = self.tree.dirspec.get_name_idx(i)
+            out.setdefault(dirpath, []).append(name)
+        return out
+
+    def test_the_vftable_of_a_base_subobject_has_its_own_folder(self):
+        """The secondary vftable and its methods name the subobject offset."""
+        paths = self._paths()
+        self.assertIn("vtable__Derived for Base2 (+0x8)",
+                      paths["/Derived/vftable/"])
+        self.assertEqual(paths["/Derived/virtual methods/for Base2 (+0x8)/"],
+                         ["Derived::b1"])
+        # no doubled "virtual methods/virtual methods" folder (older versions)
+        self.assertFalse([d for d in paths if d.count("virtual methods") > 1], paths)
 
     def test_bcd_items_are_reachable(self):
         """Every base class descriptor of the hierarchy is a jumpable item."""

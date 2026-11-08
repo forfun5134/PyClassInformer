@@ -186,6 +186,12 @@ PyClassInformer also displays a new widget named "Method Classifier". It lists a
 > descriptor (which carries a comment describing the base class and its PMD
 > values), and it can be found with the quick filter. The `CHD at 0x...` item
 > says how many entries the hierarchy has.
+>
+> A class with several vftables (multiple inheritance) gets one folder per
+> vftable, named with the offset of the class (`vtable__Derived for Base2
+> (+0x8)`, `virtual methods/for Base2 (+0x8)/`), and its second locator is
+> listed as `COL at 0x... (+0x8)`, so the items of the primary vftable and of a
+> base subobject can be told apart.
 
 > [!NOTE]
 > This is only available IDA 7.7 or later. 
@@ -231,8 +237,9 @@ pci_report.export(result, "report.json")   # .json / .csv / .txt
 
 The JSON report is versioned (`format_version`) and contains, for every
 vftable: the class name, the addresses of the COL/TD/CHD/BCA, the RTTI
-signature, the class offset, the multiple inheritance flags, the number of base
-classes, whether the class is a library class and/or abstract, the virtual
+signature, the class offset, the multiple inheritance flags, the size of the
+base class array (`num_base_classes`, the class itself included), whether the
+class is a library class and/or abstract, the virtual
 methods (with a `pure` flag for pure virtual methods), the functions that
 refer to the vftable (possible constructors/destructors), the hierarchy paths
 and every hierarchy path of the class:
@@ -397,7 +404,7 @@ images (`tests/fakepe.py`), so the parser, the report writers and the UI
 classes can be exercised on any machine:
 
 ```bash
-python3 tests/run_tests.py        # 151 tests, no IDA required
+python3 tests/run_tests.py        # 152 tests, no IDA required
 python3 tests/run_tests.py -v
 ```
 
