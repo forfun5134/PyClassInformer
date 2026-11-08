@@ -67,6 +67,7 @@ class Image(object):
         self.names = {}          # ea -> name
         self.funcs = {}          # start_ea -> FakeFunc
         self.struct_applied = {} # tid -> set(ea)
+        self.deleted_names = []  # (ea, name) removed by del_items(DELIT_DELNAMES)
 
     # ------------------------------------------------------------------
     def add_segment(self, start, size, name, sclass, bitness=None):

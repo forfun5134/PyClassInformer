@@ -61,6 +61,78 @@ class TestIDACompat(unittest.TestCase):
             self.assertNotEqual(structstore.get_by_name(msvc_rtti.COL_NAME), None)
             self.assertEqual(structstore.struct_size(msvc_rtti.COL_NAME), 24)
 
+    def test_default_backend_follows_the_documented_guidance(self):
+        """tinfo_t.create_udt()/add_udm() from IDA 9.0 on, idc wrappers before."""
+        import pyclassinformer.msvc_rtti as msvc_rtti
+        import pyclassinformer.ida_compat as ida_compat
+        import structstore
+
+        ida_compat.PREFER_LEGACY_STRUCT_API = None
+        structstore.reset()
+        info = ida_compat.create_struct(msvc_rtti.COL_NAME, msvc_rtti.COL_MEMBERS_X64, True)
+        self.assertEqual(info.backend, "typeinf")
+        self.assertEqual(info.size, 24)
+
+        # simulate IDA 8.4, where ida_struct still existed and was preferred
+        saved = (ida_compat.IS_IDA_9_OR_LATER, ida_compat.IDA_VERSION)
+        try:
+            ida_compat.IS_IDA_9_OR_LATER = False
+            ida_compat.IDA_VERSION = (8, 4)
+            structstore.reset()
+            info = ida_compat.create_struct(msvc_rtti.COL_NAME, msvc_rtti.COL_MEMBERS_X64, True)
+            self.assertEqual(info.backend, "legacy")
+            self.assertEqual(info.size, 24)
+        finally:
+            ida_compat.IS_IDA_9_OR_LATER, ida_compat.IDA_VERSION = saved
+
+    def test_a_compatible_type_is_reused(self):
+        import pyclassinformer.msvc_rtti as msvc_rtti
+        import pyclassinformer.ida_compat as ida_compat
+
+        first = ida_compat.create_struct(msvc_rtti.BCD_NAME, msvc_rtti.BCD_MEMBERS, True)
+        second = ida_compat.create_struct(msvc_rtti.BCD_NAME, msvc_rtti.BCD_MEMBERS, True)
+        self.assertEqual(first.tid, second.tid)
+        self.assertEqual(second.backend, "existing")
+
+    def test_terr_ok(self):
+        """terr_t values must not be read as booleans (TERR_OK == 0)."""
+        import pyclassinformer.ida_compat as ida_compat
+        self.assertTrue(ida_compat.terr_ok(True))
+        self.assertFalse(ida_compat.terr_ok(False))
+        self.assertTrue(ida_compat.terr_ok(0))     # TERR_OK
+        self.assertFalse(ida_compat.terr_ok(1))    # an error
+
+    def test_typeinf_backend_survives_a_terr_style_return(self):
+        """IDA may return a terr_t (0 == OK) instead of a bool."""
+        import pyclassinformer.msvc_rtti as msvc_rtti
+        import pyclassinformer.ida_compat as ida_compat
+        import ida_typeinf
+        import structstore
+
+        original = ida_typeinf.tinfo_t.set_named_type
+
+        def terr_style(self, til, name, ntf_flags=0):
+            original(self, til, name, ntf_flags)
+            return 0     # TERR_OK
+
+        try:
+            ida_typeinf.tinfo_t.set_named_type = terr_style
+            structstore.reset()
+            ida_compat.PREFER_LEGACY_STRUCT_API = False
+            info = ida_compat.create_struct(msvc_rtti.CHD_NAME, msvc_rtti.CHD_MEMBERS, True)
+            self.assertEqual(info.backend, "typeinf")
+            self.assertTrue(info.applied)
+            self.assertEqual(structstore.struct_size(msvc_rtti.CHD_NAME), 16)
+        finally:
+            ida_typeinf.tinfo_t.set_named_type = original
+
+    def test_get_struct_tid(self):
+        import pyclassinformer.msvc_rtti as msvc_rtti
+        import pyclassinformer.ida_compat as ida_compat
+        info = ida_compat.create_struct(msvc_rtti.TD_NAME, msvc_rtti.TD_MEMBERS, True)
+        self.assertEqual(ida_compat.get_struct_tid(msvc_rtti.TD_NAME), info.tid)
+        self.assertEqual(ida_compat.get_struct_tid("does_not_exist"), ida_compat.ida_idaapi.BADADDR)
+
     def test_apply_struct_ignores_invalid_info(self):
         import pyclassinformer.ida_compat as ida_compat
         info = ida_compat.StructInfo("nope", 4, {"a": 0})

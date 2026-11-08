@@ -42,7 +42,7 @@ def reset_modules():
     if hasattr(idc, "JUMPED"):
         del idc.JUMPED[:]
 
-    ida_compat.PREFER_LEGACY_STRUCT_API = True
+    ida_compat.PREFER_LEGACY_STRUCT_API = None   # automatic (per IDA version)
     pci_utils.utils._instances.clear()
     libchk._checker = None
 
@@ -78,7 +78,8 @@ def parse(img, alldata=True, force_typeinf=False):
     import pyclassinformer.ida_compat as ida_compat
     import pyclassinformer.msvc_rtti as msvc_rtti
 
-    ida_compat.PREFER_LEGACY_STRUCT_API = not force_typeinf
+    # force_typeinf=False keeps the automatic choice for the running version
+    ida_compat.PREFER_LEGACY_STRUCT_API = None if not force_typeinf else False
     if img is not None:
         img.use()
     return msvc_rtti.rtti_parser.run(alldata=alldata)

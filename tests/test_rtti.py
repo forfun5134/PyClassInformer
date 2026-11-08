@@ -59,6 +59,16 @@ class TestSingleInheritance(unittest.TestCase):
         for ea, info in self.expected["vftables"].items():
             self.assertEqual(ida_name.get_name(info["col_ptr"]), "vtable__" + info["class"])
 
+    def test_existing_names_are_preserved(self):
+        """Applying the RTTI structures must not delete IDA's names."""
+        import ida_name
+        import image
+        self.assertEqual(image.IMAGE.deleted_names, [])
+        for info in self.expected["vftables"].values():
+            # IDA names type descriptors "??_R0" + the type mangling
+            self.assertTrue(ida_name.get_name(info["td"]).startswith("??_R0"))
+            self.assertEqual(ida_name.get_name(info["col_ptr"]), "vtable__" + info["class"])
+
     def test_summary(self):
         import pyclassinformer.msvc_rtti as msvc_rtti
         summary = msvc_rtti.rtti_parser.summarize(self.result)

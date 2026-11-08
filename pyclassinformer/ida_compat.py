@@ -178,9 +178,23 @@ def compute_layout(members, x64):
 
 
 def _tinfo_by_name(name):
+    """Load the named type ``name`` (struct) as a tinfo_t, or None."""
     tif = ida_typeinf.tinfo_t()
-    if tif.get_named_type(None, name):
-        return tif
+    try:
+        if tif.get_named_type(None, name):
+            return tif
+    except Exception:
+        pass
+    # IDA 9.x documents get_named_type_tid() as the replacement for
+    # ida_struct.get_struc_id(); use it as a second chance
+    try:
+        tid = ida_typeinf.get_named_type_tid(name)
+        if tid is not None and tid != ida_idaapi.BADADDR:
+            tif = ida_typeinf.tinfo_t(tid=tid)
+            if tif.is_struct():
+                return tif
+    except Exception:
+        pass
     return None
 
 
@@ -268,12 +282,28 @@ def build_val_repr(vtype=ida_typeinf.FRB_OFFSET, flags=ida_nalt.REF_OFF64):
     return vrepr
 
 
+def terr_ok(rc):
+    """Interpret a ``terr_t``/bool return value of a type API call.
+
+    Some of the type APIs return ``bool`` in IDAPython, others return a
+    ``terr_t`` where *zero* means success - ``if rc:`` is wrong for the latter.
+    """
+    if isinstance(rc, bool):
+        return rc
+    if isinstance(rc, int):
+        return rc == getattr(ida_typeinf, "TERR_OK", 0)
+    return bool(rc)
+
+
 def _save_tinfo(tif, name):
     """Persist changes made to a named type.  Returns True on success."""
     try:
-        if hasattr(ida_typeinf, "TERR_OK"):
-            return tif.set_named_type(None, name, ida_typeinf.NTF_REPLACE) == ida_typeinf.TERR_OK
-        return bool(tif.set_named_type(None, name, ida_typeinf.NTF_REPLACE))
+        return terr_ok(tif.set_named_type(None, name, ida_typeinf.NTF_REPLACE))
+    except TypeError:
+        try:
+            return terr_ok(tif.set_named_type(None, name))
+        except Exception:
+            return False
     except Exception:
         return False
 
@@ -352,17 +382,28 @@ def _create_struct_typeinf(name, members, x64):
 
     tid = ida_idaapi.BADADDR
     try:
-        if tif.set_named_type(None, name, ida_typeinf.NTF_REPLACE):
+        if terr_ok(tif.set_named_type(None, name, ida_typeinf.NTF_REPLACE)):
             tid = tif.get_tid()
+    except TypeError:
+        try:
+            if terr_ok(tif.set_named_type(None, name)):
+                tid = tif.get_tid()
+        except Exception:
+            tid = ida_idaapi.BADADDR
     except Exception:
         tid = ida_idaapi.BADADDR
     return tid, size
 
 
-#: IDA 7.x-9.5 still ship the idc structure wrappers, which are the most
-#: battle tested way to create a structure.  Tests flip this to exercise the
-#: pure ida_typeinf backend that is used when the wrappers are unavailable.
-PREFER_LEGACY_STRUCT_API = True
+#: Which backend creates the RTTI structures.
+#:
+#: ``None`` (default) picks the backend the IDA documentation recommends: the
+#: ``idc`` structure wrappers (``add_struc``/``add_struc_member``) up to
+#: IDA 8.4, and ``tinfo_t.create_udt()``/``tinfo_t.add_udm()`` from IDA 9.0
+#: on, because 9.0 removed ``ida_struct`` and the ``idc`` wrappers are only
+#: compatibility shims there (see the "IDAPython porting guide for IDA 9").
+#: Set it to True/False to force one backend (tests do that).
+PREFER_LEGACY_STRUCT_API = None
 
 
 def _existing_struct_matches(name, offsets, size):
@@ -398,6 +439,8 @@ def create_struct(name, members, x64, prefer_legacy=None):
     """
     if prefer_legacy is None:
         prefer_legacy = PREFER_LEGACY_STRUCT_API
+    if prefer_legacy is None:
+        prefer_legacy = not IS_IDA_9_OR_LATER
 
     offsets, size = compute_layout(members, x64)
 
@@ -495,7 +538,9 @@ def apply_struct(ea, size, info, force=False):
         # already done: applying a type twice is expensive and pointless
         return True
     try:
-        ida_bytes.del_items(ea, ida_bytes.DELIT_DELNAMES, size)
+        # DELIT_SIMPLE keeps the names and comments: IDA puts its own names on
+        # the RTTI structures (e.g. "??_R0?AVFoo@@") and we must not delete them
+        ida_bytes.del_items(ea, ida_bytes.DELIT_SIMPLE, size)
     except Exception:
         pass
     try:
@@ -519,6 +564,12 @@ def apply_struct(ea, size, info, force=False):
 
 def get_struct_tid(name):
     """Return the type/struct id of ``name`` or BADADDR."""
+    try:
+        tid = ida_typeinf.get_named_type_tid(name)
+        if tid is not None and tid != ida_idaapi.BADADDR:
+            return tid
+    except Exception:
+        pass
     try:
         tid = idc.get_struc_id(name)
         if tid != ida_idaapi.BADADDR:

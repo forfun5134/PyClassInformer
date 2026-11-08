@@ -283,8 +283,9 @@ class tinfo_t(object):
 
     # ------------------------------------------------------------------
     def set_named_type(self, til, name, ntf_flags=0):
+        # replacing an existing name keeps its tid, like IDA does
         entry = structstore.get_by_name(name)
-        if entry is None or (ntf_flags & NTF_REPLACE):
+        if entry is None:
             tid = structstore.new_struct(name)
         else:
             tid = entry["tid"]
@@ -296,7 +297,7 @@ class tinfo_t(object):
         } for m in self.members]
         self.name = name
         self._tid = tid
-        return TERR_OK
+        return True
 
     def get_named_type(self, til, name, btf_flags=0):
         entry = structstore.get_by_name(name)
@@ -334,6 +335,11 @@ class tinfo_t(object):
 
     def __repr__(self):
         return "<tinfo_t %s %s size=%s>" % (self.kind, self.name, self.get_size())
+
+
+def get_named_type_tid(name):
+    """Mock of the IDA 9.x replacement for ida_struct.get_struc_id()."""
+    return structstore.get_tid(name)
 
 
 def apply_tinfo(ea, tif, flags=0):

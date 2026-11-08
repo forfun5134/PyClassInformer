@@ -31,6 +31,8 @@ class TestReport(unittest.TestCase):
         self.assertEqual(doc["tool"], "PyClassInformer")
         self.assertEqual(doc["format_version"], self.report.FORMAT_VERSION)
         self.assertEqual(doc["architecture"], "x64")
+        self.assertEqual(doc["plugin_version"], self.report.PLUGIN_VERSION)
+        self.assertEqual(doc["ida_version"], "9.5")
         self.assertEqual(doc["imagebase"], self.img.imagebase)
         self.assertGreaterEqual(len(doc["vftables"]), 4)
 

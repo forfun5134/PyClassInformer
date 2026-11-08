@@ -26,3 +26,8 @@ def inf_get_min_ea():
 
 def inf_is_64bit():
     return image.IMAGE.bitness == 2
+
+
+def inf_get_procname():
+    # IDA reports "metapc" for every x86/x64 database
+    return getattr(image.IMAGE, "procname", "metapc")

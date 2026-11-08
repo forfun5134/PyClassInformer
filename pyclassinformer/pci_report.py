@@ -23,10 +23,14 @@ ida_idaapi.require("pyclassinformer")
 ida_idaapi.require("pyclassinformer.pci_utils")
 ida_idaapi.require("pyclassinformer.msvc_rtti")
 import pyclassinformer.pci_utils as pci_utils
+import pyclassinformer.ida_compat as ida_compat
 import pyclassinformer.msvc_rtti as msvc_rtti
 
 #: bumped whenever the JSON/CSV layout changes incompatibly
 FORMAT_VERSION = 1
+
+#: version of the plugin, reported in the JSON export
+PLUGIN_VERSION = "1.1"
 
 #: the result of the last run, used by the export actions
 LAST_RESULT = {"result": None, "time": None}
@@ -199,9 +203,11 @@ def build_json(result):
         "tool": "PyClassInformer",
         "format_version": FORMAT_VERSION,
         "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "plugin_version": PLUGIN_VERSION,
+        "ida_version": "{}.{}".format(*ida_compat.IDA_VERSION),
         "input_file": _get_input_file_name(),
         "imagebase": _imagebase(),
-        "architecture": "x64" if u.x64 else "x86",
+        "architecture": _architecture(),
         "summary": summary,
         "vftables": [vftable_to_dict(result[ea], ea, result, u)
                      for ea in sorted_vftables(result)],
@@ -214,6 +220,28 @@ def _imagebase():
         return ida_nalt.get_imagebase()
     except Exception:
         return 0
+
+
+def _architecture():
+    """Return the architecture of the database ("x86", "x64", "arm", "arm64"...).
+
+    The bitness alone cannot tell x86 from ARM, so the processor name is used
+    when IDA reports one.
+    """
+    u = get_utils()
+    proc = ""
+    try:
+        import ida_ida
+        proc = (ida_ida.inf_get_procname() or "").lower()
+    except Exception:
+        proc = ""
+    if proc in ("metapc", "pc", "x86", "80386"):
+        return "x64" if u.x64 else "x86"
+    if proc.startswith("arm"):
+        return "arm64" if u.x64 else "arm"
+    if proc:
+        return proc
+    return "x64" if u.x64 else "x86"
 
 
 def _get_input_file_name():

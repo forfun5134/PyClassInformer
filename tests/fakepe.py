@@ -130,6 +130,8 @@ class RTTIImage(object):
             img.write_uint(ea, 0, self.ptr_size)                 # pVFTable
             img.write_uint(ea + self.ptr_size, 0, self.ptr_size)  # spare
             img.write_string(ea + header, mangled)
+            # IDA names the type descriptor "??_R0" + the type mangling
+            img.set_name(ea, "??_R0" + mangled[1:])
             self.td_eas[name] = ea
 
         # ---- per class hierarchy -------------------------------------

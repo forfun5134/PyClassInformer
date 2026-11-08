@@ -144,6 +144,10 @@ def create_struct(ea, size, tid, use_offsets=True):
 
 def del_items(ea, flags=DELIT_SIMPLE, nbytes=1, **kwargs):
     image.IMAGE.clear_items(ea, nbytes)
+    if flags & DELIT_DELNAMES:
+        # DELIT_DELNAMES also wipes the symbols in the range
+        for name_ea in [x for x in image.IMAGE.names if ea <= x < ea + nbytes]:
+            image.IMAGE.deleted_names.append((name_ea, image.IMAGE.names.pop(name_ea)))
     return True
 
 
