@@ -26,8 +26,16 @@ class export_action_t(ida_kernwin.action_handler_t):
         self.fmt = fmt
 
     def activate(self, ctx):
+        result = None
         chooser = CURRENT.get("chooser")
-        result = chooser.data if chooser is not None else pci_report.LAST_RESULT.get("result")
+        if chooser is not None:
+            try:
+                # the chooser may outlive the database it was built from
+                result = chooser.data
+            except Exception:
+                result = None
+        if result is None:
+            result = pci_report.LAST_RESULT.get("result")
         pci_report.export(result, fmt=self.fmt)
         return 1
 

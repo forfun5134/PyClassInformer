@@ -61,6 +61,8 @@ def run_pci(config=None, icon=-1, export=None):
     # show results
     tree = None
     if not result:
+        # do not let the export actions report the data of a previous run
+        pci_report.remember(None)
         print("Nothing found. RTTI might be disabled or it is not a Windows C++ program.")
         print("Done")
         return tree

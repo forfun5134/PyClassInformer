@@ -157,7 +157,7 @@ class mc_tree_t(ida_kernwin.Choose):
             # applied to the vftable/RTTI pointer when IDA only has an
             # auto generated name)
             name = ida_name.get_short_name(vftable_ea) or ""
-            if name.startswith(("off_", "unk_", "dword_", "qword_", "")):
+            if not name or name.startswith(("off_", "unk_", "dword_", "qword_")):
                 alternative = ""
                 col_ptr_ea = getattr(col, "col_ptr_ea", ida_idaapi.BADADDR)
                 if col_ptr_ea != ida_idaapi.BADADDR:
@@ -175,7 +175,7 @@ class mc_tree_t(ida_kernwin.Choose):
             # RTTI relevant structures of the vftable (jumpable)
             dp = dirtree_path + "RTTI/"  # needs the last slash for a directory
             self.dirtree.mkdir(dp)
-            self.add_item(dp, vftable_ea - self.u.PTR_SIZE, "COL at {:#x}".format(col.ea))
+            self.add_item(dp, col.ea, "COL at {:#x}".format(col.ea))
             self.add_item(dp, col.tdea, "TD at {:#x}".format(col.tdea))
             if col.chd is not None:
                 self.add_item(dp, col.chdea, "CHD at {:#x}".format(col.chdea))
@@ -188,12 +188,12 @@ class mc_tree_t(ida_kernwin.Choose):
 
             # if the class has multiple vftables, create a nested folder
             col_offs = self.u.get_col_offs(col, self.data)
-            if len(col_offs) > 1:
-                # if the class has multiple vftables, create a nested folder with the actual class name
-                if class_name != actual_class_name:
-                    dp += "virtual methods for {} ({})/".format(actual_class_name, col.offset)  # needs the last slash for a directory
-                else:
-                    dp += "virtual methods/"  # needs the last slash for a directory
+            if len(col_offs) > 1 and class_name != actual_class_name:
+                # the vftable belongs to a base class subobject of a class with
+                # several vftables: give it its own folder
+                # (older versions appended "virtual methods/" a second time here,
+                # which created "virtual methods/virtual methods/")
+                dp += "virtual methods for {} ({})/".format(actual_class_name, col.offset)  # needs the last slash for a directory
                 self.dirtree.mkdir(dp)
 
             # add virtual methods to the folder

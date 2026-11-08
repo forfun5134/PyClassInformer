@@ -120,6 +120,22 @@ class TestRunPCI(unittest.TestCase):
         self.assertIn("virtual methods (2)", output)
         self.assertIn("functions referring to the vftable", output)
 
+    def test_stale_result_is_forgotten(self):
+        """A run that finds nothing must clear the result of the previous run."""
+        import pyclassinformer.pci_report as pci_report
+        import pyclassinformer.pyclassinformer as pci
+
+        img, expected = harness.build(harness.SI_CLASSES, x64=True)
+        harness.quiet(pci.run_pci)
+        self.assertTrue(pci_report.LAST_RESULT["result"])
+
+        # a database without RTTI
+        harness.build([], x64=True)
+        result, output = harness.capture_stdout(pci.run_pci)
+        self.assertIsNone(result)
+        self.assertFalse(pci_report.LAST_RESULT["result"])
+        self.assertIsNone(pci_report.export_last(path=os.path.join(self.tmpdir, "stale.json")))
+
     def test_nothing_found(self):
         img, expected = harness.build([], x64=True)
         import pyclassinformer.pyclassinformer as pci
@@ -229,6 +245,18 @@ class TestMethodTree(unittest.TestCase):
         for info in self.expected["vftables"].values():
             self.assertIn(hex(info["td"]), eas)
             self.assertIn(hex(info["chd"]), eas)
+
+    def test_no_duplicated_folder(self):
+        """The tree must not contain 'virtual methods/virtual methods/'."""
+        for dirpath, _ in self.tree.dirspec.inodes:
+            self.assertFalse(dirpath.endswith("virtual methods/virtual methods/"), dirpath)
+
+    def test_col_item_points_to_the_locator(self):
+        rows = self._rows()
+        eas = {r[0] for r in rows}
+        for col in self.result.values():
+            self.assertIn("COL at {:#x}".format(col.ea), [r[1] for r in rows])
+            self.assertIn(hex(col.ea), eas)
 
     def test_ea_column_is_the_last_field(self):
         for i in range(self.tree.OnGetSize()):
