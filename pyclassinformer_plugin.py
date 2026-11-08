@@ -70,6 +70,12 @@ class pci_plugin_t(ida_idaapi.plugin_t):
             return ida_kernwin.AST_ENABLE_ALWAYS
 
     def attach_to_menu_and_toolbar(self):
+        # A previous load (a plugin reload, or an aborted init) may still own
+        # the action name; IDA would refuse to register it again.
+        try:
+            ida_kernwin.unregister_action(self.action_name)
+        except Exception:
+            pass
         # insert the action
         ida_kernwin.register_action(
             ida_kernwin.action_desc_t(

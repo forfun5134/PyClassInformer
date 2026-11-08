@@ -250,6 +250,22 @@ class TestPluginEntry(unittest.TestCase):
         self.assertIn("Edit/Plugins/", [m[0] for m in ida_kernwin.MENU_ATTACHMENTS])
         plugin.term()
 
+    def test_plugin_can_be_reloaded(self):
+        plugin = self.plugin.PLUGIN_ENTRY()
+        plugin.init()
+        plugin.term()
+        plugin2 = self.plugin.PLUGIN_ENTRY()
+        self.assertIsNotNone(plugin2.init())
+        import ida_kernwin
+        # the action is registered exactly once after a reload
+        self.assertEqual(
+            [a for a in ida_kernwin.ACTIONS if a == "pyclassinformer:execute"],
+            ["pyclassinformer:execute"])
+        self.assertEqual(
+            len([m for m in ida_kernwin.MENU_ATTACHMENTS
+                 if m[1] == "pyclassinformer:execute"]), 1)
+        plugin2.term()
+
 
 if __name__ == "__main__":
     unittest.main()

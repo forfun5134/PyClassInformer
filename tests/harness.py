@@ -32,6 +32,9 @@ def reset_modules():
     pci_report.LAST_RESULT["result"] = None
     pci_report.LAST_RESULT["time"] = None
     del ida_kernwin.CHOSERS[:]
+    del ida_kernwin.MENU_ATTACHMENTS[:]
+    del ida_kernwin.TOOLBAR_ATTACHMENTS[:]
+    del ida_kernwin.POPUP_ATTACHMENTS[:]
     del ida_kernwin.MESSAGES[:]
     del ida_kernwin.DOCK_CALLS[:]
 

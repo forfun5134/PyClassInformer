@@ -19,6 +19,7 @@ MESSAGES = []
 ACTIONS = {}
 POPUP_ATTACHMENTS = []
 MENU_ATTACHMENTS = []
+TOOLBAR_ATTACHMENTS = []
 TOOLBARS = {}
 CHOSERS = []
 DOCK_CALLS = []
@@ -52,10 +53,14 @@ def create_toolbar(name, label, hotkey=""):
 
 
 def attach_action_to_toolbar(toolbar, action_name):
+    if (toolbar, action_name) not in TOOLBAR_ATTACHMENTS:
+        TOOLBAR_ATTACHMENTS.append((toolbar, action_name))
     return True
 
 
 def detach_action_from_toolbar(toolbar, action_name):
+    if (toolbar, action_name) in TOOLBAR_ATTACHMENTS:
+        TOOLBAR_ATTACHMENTS.remove((toolbar, action_name))
     return True
 
 
@@ -119,16 +124,27 @@ def register_action(desc):
 
 
 def unregister_action(name):
+    """Unregister an action (IDA also detaches it from menus and toolbars)."""
     ACTIONS.pop(name, None)
+    for menu_path, action_name in list(MENU_ATTACHMENTS):
+        if action_name == name:
+            MENU_ATTACHMENTS.remove((menu_path, action_name))
+    for toolbar, action_name in list(TOOLBAR_ATTACHMENTS):
+        if action_name == name:
+            TOOLBAR_ATTACHMENTS.remove((toolbar, action_name))
     return True
 
 
 def attach_action_to_menu(menu_path, name, flags=0):
+    if (menu_path, name) in MENU_ATTACHMENTS:
+        return False
     MENU_ATTACHMENTS.append((menu_path, name))
     return True
 
 
 def detach_action_from_menu(menu_path, name):
+    if (menu_path, name) in MENU_ATTACHMENTS:
+        MENU_ATTACHMENTS.remove((menu_path, name))
     return True
 
 
