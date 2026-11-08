@@ -49,6 +49,12 @@ class TestChooser(unittest.TestCase):
         self.assertEqual(row[3], "Animal")                  # type
         self.assertEqual(row[5], "0x0")                     # offset
         self.assertEqual(row[10], "user")                   # lib/user
+        titles = [c["title"] for c in pci_report.COLUMNS]
+        # "Entries" is the size of the base class array (the class itself too),
+        # so Dog (Dog: Animal) has 2 entries and Animal only 1
+        entries = {r[titles.index("Type")]: r[titles.index("Entries")]
+                   for r in (chooser.OnGetLine(i) for i in range(chooser.OnGetSize()))}
+        self.assertEqual(entries, {"Animal": "1", "Dog": "2"})
 
     def test_navigation_and_ea(self):
         import ida_kernwin

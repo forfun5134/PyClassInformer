@@ -30,7 +30,7 @@ analysis settings (see "IDA 9.5 compatibility notes" below). In short:
 
 - **More information**: two new output modes (a summary of the parsed RTTI data,
   and a verbose mode that lists every virtual method and every function that
-  refers to a vftable), seven new columns (Bases, Pure, Ctors, Lib, COL, TD and CHD),
+  refers to a vftable), seven new columns (Entries, Pure, Ctors, Lib, COL, TD and CHD),
   the number of vftables in the chooser title, and JSON/CSV/text reports.
 - **More accurate**: the RTTI pointer slot right in front of a vftable is now
   recognized (it is named `vtable__<Class>` and considered when looking for

@@ -45,7 +45,7 @@ COLUMNS = (
     {"key": "hierarchy", "title": "Hierarchy", "width": 40, "chcol": "PLAIN"},
     {"key": "offset", "title": "Offset", "width": 4, "chcol": "HEX"},
     {"key": "hierarchy_order", "title": "Hierarchy Order", "width": 40, "chcol": "PLAIN"},
-    {"key": "bases", "title": "Bases", "width": 4, "chcol": "DEC"},
+    {"key": "bases", "title": "Entries", "width": 7, "chcol": "DEC"},
     {"key": "pure", "title": "Pure", "width": 4, "chcol": "DEC"},
     {"key": "refs", "title": "Ctors", "width": 4, "chcol": "DEC"},
     {"key": "lib", "title": "Lib", "width": 4, "chcol": "PLAIN"},

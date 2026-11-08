@@ -28,7 +28,7 @@ COLUMNS = [
     ("Offset",      4 | chcol("HEX")),
     ("CdOffset",    4 | chcol("HEX")),
     ("Flags",       6 | chcol("PLAIN")),
-    ("Bases",       4 | chcol("DEC")),
+    ("Entries",     7 | chcol("DEC")),  # entries of the base class array
     ("Pure",        4 | chcol("DEC")),
     ("Refs",        4 | chcol("DEC")),
 ]
