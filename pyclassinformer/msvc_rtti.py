@@ -682,6 +682,8 @@ class RTTICompleteObjectLocator(RTTIStruc):
         self.selfea = ida_idaapi.BADADDR
         self.vfeas = []
         self.refeas = []
+        #: every instruction/pointer that loads the vftable address
+        self.refaddrs = []
         self.pure_virtual_count = 0
         self.libflag = self.LIBUNK
 
@@ -839,23 +841,31 @@ class rtti_parser(object):
         return u
 
     @staticmethod
-    def get_refeas(vtable):
+    def get_ref_addrs(vtable):
+        """Every address that references the vftable (or its RTTI pointer)."""
+        refaddrs = []
+        targets = [vtable]
+        if vtable - u.PTR_SIZE > 0:
+            targets.append(vtable - u.PTR_SIZE)
+        for target in targets:
+            refaddrs.extend(u.get_data_refs_to(target))
+        return sorted(set(refaddrs))
+
+    @staticmethod
+    def get_refeas(vtable, refaddrs=None):
         """Functions that reference the vftable (possible constructors/dtors).
 
         Compiler generated code references the *start* of the vftable (the
         RTTI pointer in front of the first method), while PyClassInformer
         reports the address of the first method.  Both addresses are checked so
-        that no constructor or destructor is missed.
+        that no constructor or destructor is missed.  ``refaddrs`` can pass in
+        an already computed :func:`get_ref_addrs` result.
         """
         result = []
         seen = set()
-        targets = [vtable]
-        if vtable - u.PTR_SIZE > 0:
-            targets.append(vtable - u.PTR_SIZE)
-
-        refeas = []
-        for target in targets:
-            refeas.extend(u.get_data_refs_to(target))
+        if refaddrs is None:
+            refaddrs = rtti_parser.get_ref_addrs(vtable)
+        refeas = refaddrs
 
         for refea in refeas:
             try:
@@ -907,7 +917,8 @@ class rtti_parser(object):
                     col = RTTICompleteObjectLocator(colea, vtable)
                     # add rcol to the results
                     if col.name is not None:
-                        col.refeas = rtti_parser.get_refeas(vtable)
+                        col.refaddrs = rtti_parser.get_ref_addrs(vtable)
+                        col.refeas = rtti_parser.get_refeas(vtable, col.refaddrs)
                         result[vtable] = col
             vtable += ptr_size
 

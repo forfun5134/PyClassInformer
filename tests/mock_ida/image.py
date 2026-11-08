@@ -7,7 +7,6 @@ arithmetic on these bytes, so the tests are meaningful; the IDAPython call
 semantics are approximations and are marked as such in the test report.
 """
 
-import bisect
 import struct
 
 BADADDR = 0xFFFFFFFFFFFFFFFF
@@ -68,6 +67,8 @@ class Image(object):
         self.funcs = {}          # start_ea -> FakeFunc
         self.struct_applied = {} # tid -> set(ea)
         self.deleted_names = []  # (ea, name) removed by del_items(DELIT_DELNAMES)
+        self.cmts = {}           # (ea, repeatable) -> comment
+        self.func_cmts = {}      # (func_ea, repeatable) -> comment
 
     # ------------------------------------------------------------------
     def add_segment(self, start, size, name, sclass, bitness=None):
@@ -172,6 +173,30 @@ class Image(object):
 
     def get_name(self, ea):
         return self.names.get(ea)
+
+    def set_func_cmt(self, ea, cmt, repeatable):
+        key = (ea, bool(repeatable))
+        old = self.func_cmts.get(key)
+        if cmt:
+            self.func_cmts[key] = cmt
+        else:
+            self.func_cmts.pop(key, None)
+        return old
+
+    def get_func_cmt(self, ea, repeatable):
+        return self.func_cmts.get((ea, bool(repeatable)), "")
+
+    def set_cmt(self, ea, cmt, repeatable):
+        key = (ea, bool(repeatable))
+        old = self.cmts.get(key)
+        if cmt:
+            self.cmts[key] = cmt
+        else:
+            self.cmts.pop(key, None)
+        return old
+
+    def get_cmt(self, ea, repeatable):
+        return self.cmts.get((ea, bool(repeatable)), "")
 
     def apply_struct(self, ea, size, tid):
         self.clear_items(ea, size)

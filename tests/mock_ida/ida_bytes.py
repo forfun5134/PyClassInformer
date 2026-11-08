@@ -142,6 +142,15 @@ def create_struct(ea, size, tid, use_offsets=True):
     return image.IMAGE.apply_struct(ea, size, tid)
 
 
+def set_cmt(ea, comment, rptble):
+    """Set a (non)repeatable comment; returns the previous one."""
+    return image.IMAGE.set_cmt(ea, comment, rptble) is not None
+
+
+def get_cmt(ea, rptble):
+    return image.IMAGE.get_cmt(ea, rptble)
+
+
 def del_items(ea, flags=DELIT_SIMPLE, nbytes=1, **kwargs):
     image.IMAGE.clear_items(ea, nbytes)
     if flags & DELIT_DELNAMES:

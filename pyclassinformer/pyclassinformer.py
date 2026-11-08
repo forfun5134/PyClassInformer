@@ -12,6 +12,7 @@ ida_idaapi.require("pyclassinformer.method_classifier")
 ida_idaapi.require("pyclassinformer.lib_classes_checker")
 ida_idaapi.require("pyclassinformer.get_func_colors")
 ida_idaapi.require("pyclassinformer.pci_report")
+ida_idaapi.require("pyclassinformer.pci_annotate")
 import pyclassinformer.msvc_rtti as msvc_rtti
 import pyclassinformer.pci_config as pci_config
 import pyclassinformer.pci_chooser as pci_chooser
@@ -19,6 +20,7 @@ import pyclassinformer.method_classifier as method_classifier
 import pyclassinformer.lib_classes_checker as lib_classes_checker
 import pyclassinformer.get_func_colors as get_func_colors
 import pyclassinformer.pci_report as pci_report
+import pyclassinformer.pci_annotate as pci_annotate
 
 
 def _warn(message, e=None):
@@ -75,6 +77,17 @@ def run_pci(config=None, icon=-1, export=None):
         lib_classes_checker.set_libflag(result)
     except Exception as e:
         _warn("detecting known library classes failed.", e)
+
+    # comment the vftables, the ctors/dtors (they show up in the pseudocode)
+    # and the RTTI structures
+    if getattr(config, "annotate", False):
+        try:
+            counters = pci_annotate.annotate(result)
+            text = pci_annotate.format_counters(counters)
+            if text:
+                print("PyClassInformer: " + text + ".")
+        except Exception as e:
+            _warn("adding the RTTI comments failed.", e)
 
     if getattr(config, "rtti", True):
         try:

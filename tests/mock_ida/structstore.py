@@ -17,7 +17,7 @@ def _new_tid():
 def new_struct(name):
     delete_struct(name)
     tid = _new_tid()
-    STRUCTS[name] = {"tid": tid, "members": []}
+    STRUCTS[name] = {"tid": tid, "members": [], "cmt": ""}
     _BY_TID[tid] = name
     return tid
 

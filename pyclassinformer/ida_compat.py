@@ -198,6 +198,16 @@ def _tinfo_by_name(name):
     return None
 
 
+def save_type(tif, name):
+    """Persist ``tif`` under ``name`` (public wrapper of the internal helper)."""
+    return _save_tinfo(tif, name)
+
+
+def get_named_tinfo(name):
+    """Public helper: the named type ``name`` as a tinfo_t, or None."""
+    return _tinfo_by_name(name)
+
+
 def _udm_index(tif, member_name):
     udt = ida_typeinf.udt_type_data_t()
     if not tif.get_udt_details(udt):

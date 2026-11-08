@@ -44,6 +44,11 @@ analysis settings (see "IDA 9.5 compatibility notes" below). In short:
   database anymore.
 - **Faster**: type descriptors are parsed once, structures that were already
   applied are not re-applied, and strings are read in one call.
+- **Closer to the code**: the vftables, the constructors/destructors and the
+  virtual methods are commented, so the RTTI information shows up in the
+  disassembly *and* in the Hex-Rays pseudocode (see "Comments and pseudocode
+  annotations" below). The five RTTI structures are documented in the Local
+  Types view as well.
 
 ## Features (short)
 - Display class names, vftables and class hierarchies as a list
@@ -54,6 +59,7 @@ analysis settings (see "IDA 9.5 compatibility notes" below). In short:
 - Rename virtual methods by appending class names to them
 - Add the FUNC_LIB flag to methods that known classes own
 - Rename possible constructors and destructors
+- Add comments to the vftable slots, the possible ctors/dtors and the virtual methods (visible in the pseudocode), and document the RTTI structures
 - Coloring known class names and their methods on the list and the tree widgets (IDA 8.3 or later)
 - Print a summary of the parsed RTTI data (number of classes, vftables, virtual methods, abstract classes, library/user classes, ...)
 - Export the result as JSON, CSV or a plain text report
@@ -89,6 +95,36 @@ PyClassInformer can automatically append class names to their virtual method nam
 PyClassInformer can also rename functions that refer to vftables to "class name" + "_possible_ctor_or_dtor". The image below is a result. Although some false positives will occur due to inlined ctors and dtors, and dynamic initializers, this feature is still useful to find them.  
   
 ![automatically renaming possible ctors and dtors](/images/auto_renmaing2.png)  
+
+### Comments and pseudocode annotations
+Renaming answers "which class owns this function", but the question that comes
+up while reading a function is "which vftable is this". Therefore every piece
+of the parsed RTTI is written back into the database as a comment (this can be
+turned off with the "Add comments ..." option):
+
+| Where | Comment | Visible in |
+|---|---|---|
+| virtual method slot of a vftable | `[PyClassInformer] Dog vtable slot 1: Dog::fetch` | disassembly of the vftable, Xrefs view |
+| RTTI pointer in front of the vftable | `[PyClassInformer] vftable of Dog (2 virtual methods)` | disassembly |
+| instruction that loads the vftable (ctor/dtor) | `[PyClassInformer] vftable of Dog (constructor/destructor candidate)` | **pseudocode** (Hex-Rays prints the comment of every statement) |
+| function that loads the vftable | `[PyClassInformer] possible constructor/destructor of Dog` | pseudocode header, Functions view |
+| virtual method | `[PyClassInformer] virtual method of Dog` | pseudocode header, Functions view |
+| complete object locator / type descriptor | `[PyClassInformer] complete object locator of Dog (offset 0x0, 2 base classes)` | disassembly |
+| `RTTITypeDescriptor`, `RTTIClassHierarchyDescriptor`, `RTTIBaseClassDescriptor`, `RTTIBaseClassArray`, `RTTICompleteObjectLocator` | description of every field | Local Types view (type comment) |
+
+Two rules make the annotations safe to use:
+
+- **A comment written by you is never overwritten.** A comment is only replaced
+  when it already starts with `[PyClassInformer]`.
+- **The operation is idempotent.** Running the plugin twice does not duplicate
+  anything: the second run reports `added 0 comments` and leaves the database
+  untouched.
+
+The type comments are written with `tinfo_t.set_type_cmt()` +
+`set_named_type(..., NTF_REPLACE)`, the function comments with
+`ida_funcs.set_func_cmt()` and the item comments with `ida_bytes.set_cmt()`.
+Every call is wrapped so that an unexpected failure only prints a warning
+instead of aborting the run.
 
 ### Virtual method classification (<= IDA 7.7)
 The detected methods are moved to each class folder in Functions and Names subviews.  
@@ -271,12 +307,22 @@ The changes above were checked against Hex-Rays' documentation for 9.5:
   `Choose.OnGetLineAttr(n)` (still there in 9.5, returns `(color, flags)`),
   `CH_TM_FULL_TREE`, `ida_dirtree.get_std_dirtree()`, `ida_xref.XREF_DATA`.
   The plugin only uses APIs that are documented for 9.5.
+- [tinfo_t reference](https://python.docs.hex-rays.com/classida__typeinf_1_1tinfo__t.html)
+  for the annotations: `set_type_cmt(cmt, is_regcmt=False, etf_flags=0)`,
+  `get_type_cmt()`, `set_named_type(til, name, ntf_flags)` - all three return a
+  `tinfo_code_t`/`terr_t`, where **zero means success**, so the results are
+  passed through `ida_compat.terr_ok()` and never used as booleans.
+  `set_type_cmt()` is documented as working "only for non-trivial types", which
+  is why it is applied to the five RTTI structures and to nothing else.
 
-Two regressions were found this way and fixed: a `del_items()` call that used
-`DELIT_DELNAMES` (it deleted IDA's own `??_R0?AVFoo@@` type-descriptor names)
-and a `set_named_type()` return value that was read as a boolean although it is
-a `terr_t` (this made the plugin silently fall back to the legacy structure
-backend). Both are covered by tests now.
+Three regressions were found this way and fixed: a `del_items()` call that used
+`DELIT_DELNAMES` (it deleted IDA's own `??_R0?AVFoo@@` type-descriptor names),
+a `set_named_type()` return value that was read as a boolean although it is a
+`tinfo_code_t` (this made the plugin silently fall back to the legacy structure
+backend), and - found while writing the new annotations - the same mistake in
+the other direction: `if not tif.set_type_cmt(...)` treats the success of
+`set_type_cmt()` (`TERR_OK`, i.e. `0`) as a failure. All three are covered by
+tests now.
 
 ## Testing without IDA
 The repository ships an offline test harness. It contains a small model of the
@@ -285,7 +331,7 @@ images (`tests/fakepe.py`), so the parser, the report writers and the UI
 classes can be exercised on any machine:
 
 ```bash
-python3 tests/run_tests.py        # 93 tests, no IDA required
+python3 tests/run_tests.py        # 112 tests, no IDA required
 python3 tests/run_tests.py -v
 ```
 

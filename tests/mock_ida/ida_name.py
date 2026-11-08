@@ -1,5 +1,4 @@
 """Mock of ida_name."""
-import re
 
 import image
 

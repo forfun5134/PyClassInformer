@@ -27,12 +27,14 @@ class pci_form_t(ida_kernwin.Form):
 <##Move functions refer vftables to "possible ctors or dtors" folder under each class folder in Functions and Names subviews (IDA 7.7 or later):{mvcd}>
 <##Rename virtual methods:{rnvm}>
 <##Rename possible constructors and destructors:{rncd}>
+<##Add comments to the vftable, the ctors/dtors (visible in the pseudocode) and the RTTI structures:{annotate}>
 <##Export a JSON report after parsing:{export_report}>{acts}>
 """, {
             'FormChangeCb': F.FormChangeCb(self.OnFormChange),
             'search_area': F.RadGroupControl(("rdata", "alldata")),
             'acts': F.ChkGroupControl(("rtti", "summary", "verbose", "exana",
-                                       "mvvm", "mvcd", "rnvm", "rncd", "export_report")),
+                                       "mvvm", "mvcd", "rnvm", "rncd", "annotate",
+                                       "export_report")),
         })
 
         self.dirtree = dirtree
@@ -71,6 +73,7 @@ class pci_form_t(ida_kernwin.Form):
         self.mvcd.checked = True
         self.rnvm.checked = True
         self.rncd.checked = True
+        self.annotate.checked = True
         self.export_report.checked = False
 
     @staticmethod
@@ -86,7 +89,7 @@ class pci_form_t(ida_kernwin.Form):
                 exana=f.exana.checked, mvvm=f.mvvm.checked, mvcd=f.mvcd.checked,
                 rnvm=f.rnvm.checked, rncd=f.rncd.checked,
                 summary=f.summary.checked, verbose=f.verbose.checked,
-                export_report=f.export_report.checked)
+                annotate=f.annotate.checked, export_report=f.export_report.checked)
         else:
             return None
 

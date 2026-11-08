@@ -22,6 +22,7 @@ Requires nothing but Python 3.8+ (the standard library only).
 | `test_report.py` | JSON/CSV/text reports: schema, column order, chooser row parity, file writing, error handling |
 | `test_ui.py` | Result chooser (rows, colors, navigation, export actions), Method Classifier (renaming, FUNC_LIB, tree items) and `run_pci` end-to-end |
 | `test_utils.py` | `ida_compat` (versions, layouts, structure creation), `pci_utils` (vftable detection, method walking, ARM Thumb normalization), `qtutils` without Qt, library class rules, plugin entry point |
+| `test_annotation.py` | Comments and type comments: exact text of every comment kind, idempotence, "a user comment is never overwritten", the per-kind switches, and `run_pci` with the option on/off |
 
 ## What is verified
 
@@ -35,6 +36,9 @@ Requires nothing but Python 3.8+ (the standard library only).
 - that invalid candidates leave the database untouched
 - JSON/CSV/text exports, including the "nothing to export" paths
 - renaming of virtual methods/ctors and the `FUNC_LIB` flag for library classes
+- the annotations: the text of the vftable slot, ctor/dtor, method and type
+  comments, that a second run adds nothing, and that comments of the user are
+  preserved
 - the plugin entry point (`PLUGIN_ENTRY().init()` registers the action, the
   menu entry and the options form)
 
@@ -45,6 +49,8 @@ Requires nothing but Python 3.8+ (the standard library only).
 - IDA's own type application (`ida_bytes.create_struct`, `apply_tinfo`)
 - anything that depends on IDA's analysis (function detection, demangling
   quality, xref types)
+- Hex-Rays itself: the tests can only prove that a comment was attached to the
+  instruction/function that the decompiler reads, not how it is rendered
 - performance on multi-megabyte binaries
 
 The mock's `CHCOL_*` numeric values and the demangler are approximations. The

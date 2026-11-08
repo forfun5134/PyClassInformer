@@ -23,6 +23,17 @@ class func_t(object):
         return "<func_t %#x>" % self.start_ea
 
 
+def set_func_cmt(f, cmt, rptble):
+    """Set the (non)repeatable comment of a function (accepts a func or an ea)."""
+    fea = f if isinstance(f, int) else f.start_ea
+    return image.IMAGE.set_func_cmt(fea, cmt, rptble)
+
+
+def get_func_cmt(f, rptble):
+    fea = f if isinstance(f, int) else f.start_ea
+    return image.IMAGE.get_func_cmt(fea, rptble)
+
+
 def get_func(ea):
     best = None
     for start, f in image.IMAGE.funcs.items():

@@ -19,9 +19,11 @@ class pci_config(object):
     summary = True        # print a summary of the parsed RTTI data
     verbose = False       # list virtual methods / vftable referrers in the Output window
     export_report = False # export a JSON report after parsing
+    annotate = True       # comment the vftables, ctors/dtors and RTTI structures
 
     def __init__(self, alldata=False, rtti=True, exana=True, mvvm=True, mvcd=True,
-                 rnvm=True, rncd=True, summary=True, verbose=False, export_report=False):
+                 rnvm=True, rncd=True, summary=True, verbose=False, export_report=False,
+                 annotate=True):
         self.alldata = alldata
         self.rtti = rtti
         self.exana = exana
@@ -32,6 +34,7 @@ class pci_config(object):
         self.summary = summary
         self.verbose = verbose
         self.export_report = export_report
+        self.annotate = annotate
         self.check_dirtree()
 
     def check_dirtree(self):

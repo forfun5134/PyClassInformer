@@ -297,7 +297,7 @@ class tinfo_t(object):
         } for m in self.members]
         self.name = name
         self._tid = tid
-        return True
+        return TERR_OK
 
     def get_named_type(self, til, name, btf_flags=0):
         entry = structstore.get_by_name(name)
@@ -332,6 +332,19 @@ class tinfo_t(object):
 
     def rename_type(self, name):
         return True
+
+    # ------------------------------------------------------------------
+    def get_type_cmt(self):
+        entry = structstore.get_by_name(self.name) if self.name else None
+        return entry.get("cmt", "") if entry else ""
+
+    def set_type_cmt(self, cmt, is_regcmt=False, etf_flags=0):
+        # real IDA returns a tinfo_code_t (TERR_OK == 0 on success)
+        entry = structstore.get_by_name(self.name) if self.name else None
+        if entry is None:
+            return TERR_BAD_TYPE
+        entry["cmt"] = cmt or ""
+        return TERR_OK
 
     def __repr__(self):
         return "<tinfo_t %s %s size=%s>" % (self.kind, self.name, self.get_size())
