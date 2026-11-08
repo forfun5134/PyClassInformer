@@ -306,7 +306,9 @@ The changes above were checked against Hex-Rays' documentation for 9.5:
   `ida_typeinf.apply_tinfo(ea, tif, flags)`, `udm_t.offset`/`size` in *bits*,
   `Choose.OnGetLineAttr(n)` (still there in 9.5, returns `(color, flags)`),
   `CH_TM_FULL_TREE`, `ida_dirtree.get_std_dirtree()`, `ida_xref.XREF_DATA`.
-  The plugin only uses APIs that are documented for 9.5.
+  The plugin only uses APIs that are documented for 9.5; the legacy `idc`
+  structure calls (`add_struc`, `add_struc_member`) exist only as a fallback
+  for IDA <= 8.4 and are guarded with `hasattr()`.
 - [tinfo_t reference](https://python.docs.hex-rays.com/classida__typeinf_1_1tinfo__t.html)
   for the annotations: `set_type_cmt(cmt, is_regcmt=False, etf_flags=0)`,
   `get_type_cmt()`, `set_named_type(til, name, ntf_flags)` - all three return a
@@ -322,7 +324,7 @@ The APIs the plugin calls were re-checked one by one for the final review:
 | `ida_bytes` | RTTI bytes, vftable slots, comments | `set_cmt(ea, cmt, rptble) -> bool`, `get_cmt(ea, rptble) -> Union[str, None]` (the code turns `None` into `""`), `del_items(ea, DELIT_SIMPLE, size)`, `create_struct` |
 | `ida_funcs` | function comments, `FUNC_LIB` | `get_func_cmt(func, rptble)`/`set_func_cmt(func, cmt, rptble)`, `get_func`, `update_func`, `FUNC_LUMINA`/`FUNC_THUNK` |
 | `ida_typeinf` | RTTI structures, type comments | `create_udt`/`add_udm`/`set_named_type`/`set_type_cmt` return `tinfo_code_t`, `apply_tinfo`, `udm_t.offset`/`size` in bits, `get_named_type_tid` |
-| `ida_kernwin` | chooser, form, actions, docking | `Choose` (`CH_*`, `CHCOL_*` via `chcol()`), `OnGetLineAttr(n) -> (color, flags)`, `get_chooser_rows(cri, chooser, GCRF_*)`, `set_dock_pos(src_ctrl, dest_ctrl, orient)` (the `DP_TAB`/`DP_FLOATING` overloads), `ask_file`, `UI_Hooks` |
+| `ida_kernwin` | chooser, form, actions, docking | `Choose` (`CH_*`, `CHCOL_*` via `chcol()`), `OnGetLineAttr(n) -> (color, flags)`, `get_chooser_rows(cri, chooser, GCRF_*)`, `set_dock_pos(title, dest, orient)` (`DP_FLOATING`, then `DP_TAB` next to "Functions"; the two calls are guarded separately), `ask_file`, `UI_Hooks` |
 | `ida_dirtree` | class folders, moving functions | `dirtree_t.rename()` moves an entry into a directory (`DTE_OWN_CHILD`/`DTE_BAD_PATH` error codes), `mkdir()` wants a trailing `/`, `dirtree_iterator_t.cursor`/`.pattern`, `get_std_dirtree(DIRTREE_FUNCS/NAMES)` |
 | `ida_ida`/`ida_idp`/`ida_nalt`/`ida_segment`/`ida_xref`/`ida_name`/`ida_auto`/`ida_loader`/`idc`/`idautils` | architecture, segments, xrefs, names, auto analysis | `inf_get_procname()`, `ph.id`, `XREF_DATA`/`XREF_EXACT`, `demangle_name`, `SN_NOCHECK`/`SN_FORCE`, `REF_OFF32`/`REF_OFF64`, `get_strlit_contents()` |
 
