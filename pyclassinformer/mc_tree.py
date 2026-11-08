@@ -95,6 +95,27 @@ class my_dirspec_t(ida_dirtree.dirspec_t):
         pass
 
 
+def _kernwin_flag(name, default=0):
+    """Resolve a ``CH_*`` flag, also under its ``OBSOLETE_`` alias.
+
+    IDA keeps renaming chooser flags (``CH_HAS_DIRTREE`` is the documented way
+    to present a tree in 9.5, ``CH_TM_FULL_TREE`` is the bit older versions
+    used), so the flags are looked up instead of being hard-coded.
+    """
+    for prefix in ("", "OBSOLETE_"):
+        value = getattr(ida_kernwin, prefix + name, None)
+        if value is not None:
+            return value
+    return default
+
+
+#: the tree needs OnGetDirTree()/OnIndexToInode(); both flag spellings are
+#: passed so that the tree shows up on old and new IDA versions alike
+TREE_FLAGS = (_kernwin_flag("CH_HAS_DIRTREE") | _kernwin_flag("CH_TM_FULL_TREE")
+              | _kernwin_flag("CH_NON_PERSISTED_TREE")
+              | _kernwin_flag("CH_RENAME_IS_EDIT"))
+
+
 class mc_tree_t(ida_kernwin.Choose):
 
     def __init__(self, title, data, base_class_paths, icon=-1):
@@ -109,7 +130,7 @@ class mc_tree_t(ida_kernwin.Choose):
             self,
             title,
             COLUMNS,
-            flags=ida_kernwin.CH_TM_FULL_TREE | ida_kernwin.CH_NON_PERSISTED_TREE | ida_kernwin.CH_RENAME_IS_EDIT,
+            flags=TREE_FLAGS,
             icon=icon
         )
         self.items = []

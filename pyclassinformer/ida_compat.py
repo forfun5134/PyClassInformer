@@ -292,6 +292,24 @@ def build_val_repr(vtype=ida_typeinf.FRB_OFFSET, flags=ida_nalt.REF_OFF64):
     return vrepr
 
 
+def as_text(value, default=""):
+    """Return ``value`` as a ``str``.
+
+    IDA 9.0 turned most of the string getters (segment names and classes,
+    processor names, ...) into ``str`` getters.  A comparison such as
+    ``get_segm_class(seg) == "CODE"`` silently fails when the returned object is
+    ``bytes`` (older IDAs, processor modules that were not updated), so every
+    name that is compared with a literal goes through this helper.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
 def terr_ok(rc):
     """Interpret a ``terr_t``/bool return value of a type API call.
 

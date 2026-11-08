@@ -234,7 +234,8 @@ def _architecture():
     proc = ""
     try:
         import ida_ida
-        proc = (ida_ida.inf_get_procname() or "").lower()
+        import pyclassinformer.ida_compat as ida_compat
+        proc = ida_compat.as_text(ida_ida.inf_get_procname()).lower()
     except Exception:
         proc = ""
     if proc in ("metapc", "pc", "x86", "80386"):
@@ -248,7 +249,8 @@ def _architecture():
 
 def _get_input_file_name():
     try:
-        return ida_nalt.get_input_file_path() or ""
+        import pyclassinformer.ida_compat as ida_compat
+        return ida_compat.as_text(ida_nalt.get_input_file_path())
     except Exception:
         return ""
 

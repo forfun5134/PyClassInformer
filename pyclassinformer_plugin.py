@@ -105,9 +105,12 @@ class pci_plugin_t(ida_idaapi.plugin_t):
     @staticmethod
     class register_icon(ida_kernwin.UI_Hooks):
         def updated_actions(self):
+            # update_action_icon() takes the *action name* (not the menu path):
+            # the icon of the action can only be set once the actions have been
+            # created, which is when this hook fires
             try:
                 done = ida_kernwin.update_action_icon(
-                    pci_plugin_t.menu_path + pci_plugin_t.wanted_name, pci_plugin_t.act_icon)
+                    pci_plugin_t.action_name, pci_plugin_t.act_icon)
             except Exception:
                 done = False
             if done:

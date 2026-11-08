@@ -212,7 +212,7 @@ class utils(object):
     def _get_code_segment():
         for n in range(ida_segment.get_segm_qty()):
             seg = ida_segment.getnseg(n)
-            if seg and ida_segment.get_segm_class(seg) == "CODE":
+            if seg and ida_compat.as_text(ida_segment.get_segm_class(seg)) == "CODE":
                 return seg
         return None
 
@@ -220,7 +220,8 @@ class utils(object):
     def get_data_segments():
         for n in range(ida_segment.get_segm_qty()):
             seg = ida_segment.getnseg(n)
-            if seg and ida_segment.get_segm_class(seg) == "DATA" and seg and not seg.is_header_segm():
+            if seg and ida_compat.as_text(ida_segment.get_segm_class(seg)) == "DATA" \
+                    and not seg.is_header_segm():
                 yield seg
 
     def update_valid_ranges(self):

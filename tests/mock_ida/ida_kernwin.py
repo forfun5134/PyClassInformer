@@ -68,7 +68,11 @@ def delete_toolbar(name):
     return True
 
 
+UPDATED_ICONS = []
+
+
 def update_action_icon(action_name, icon):
+    UPDATED_ICONS.append((action_name, icon))
     return True
 
 
@@ -173,6 +177,7 @@ class UI_Hooks(object):
 
 CH_MULTI = 0x0001
 CH_ATTRS = 0x0002
+CH_HAS_DIRTREE = 0x0200
 CH_TM_FULL_TREE = 0x0004
 CH_NON_PERSISTED_TREE = 0x0008
 CH_RENAME_IS_EDIT = 0x0010
@@ -196,6 +201,7 @@ CHCOL_INODENAME = 0x00000008
 class Choose(object):
     CH_MULTI = CH_MULTI
     CH_ATTRS = CH_ATTRS
+    CH_HAS_DIRTREE = CH_HAS_DIRTREE
     CH_TM_FULL_TREE = CH_TM_FULL_TREE
     CH_NON_PERSISTED_TREE = CH_NON_PERSISTED_TREE
     CH_RENAME_IS_EDIT = CH_RENAME_IS_EDIT
@@ -208,6 +214,7 @@ class Choose(object):
 
     CH_MULTI = 0x0001
     CH_ATTRS = 0x0002
+    CH_HAS_DIRTREE = 0x0200
     CH_TM_FULL_TREE = 0x0004
     CH_NON_PERSISTED_TREE = 0x0008
     CH_RENAME_IS_EDIT = 0x0010

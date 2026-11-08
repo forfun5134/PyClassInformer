@@ -26,6 +26,15 @@ class TestIDACompat(unittest.TestCase):
         self.assertEqual(ida_compat.xref_flags(1), 1 | ida_xref.XREF_EXACT)
         self.assertEqual(ida_compat.xref_flags(0, exact=False), 0)
 
+    def test_as_text_accepts_bytes_and_str(self):
+        """IDA 9.0 made the string getters return str; older ones return bytes."""
+        import pyclassinformer.ida_compat as ida_compat
+        self.assertEqual(ida_compat.as_text(b"CODE"), "CODE")
+        self.assertEqual(ida_compat.as_text("CODE"), "CODE")
+        self.assertEqual(ida_compat.as_text(None), "")
+        self.assertEqual(ida_compat.as_text(None, "x"), "x")
+        self.assertEqual(ida_compat.as_text(7), "7")
+
     def test_struct_layouts_for_both_bitnesses(self):
         import pyclassinformer.msvc_rtti as msvc_rtti
         import pyclassinformer.ida_compat as ida_compat
@@ -199,6 +208,35 @@ class TestPCIUtils(unittest.TestCase):
         self.assertFalse(self.u.valid_ptr(0xFFFFFFFFFFFFFFFF))
 
 
+class TestBytesTolerance(unittest.TestCase):
+    """The plugin must not depend on str vs bytes of the string getters."""
+
+    def setUp(self):
+        self.img, self.expected = harness.build(harness.SI_CLASSES, x64=True)
+
+    def test_bytes_segment_class_is_understood(self):
+        import ida_segment
+        import pyclassinformer.pci_utils as pci_utils
+        u = pci_utils.utils.get()
+        orig = ida_segment.get_segm_class
+        ida_segment.get_segm_class = lambda seg: orig(seg).encode("ascii")
+        try:
+            self.assertTrue(list(u.get_data_segments()))
+            self.assertIsNotNone(u._get_code_segment())
+        finally:
+            ida_segment.get_segm_class = orig
+
+    def test_bytes_procname_gives_the_architecture(self):
+        import ida_ida
+        import pyclassinformer.pci_report as pci_report
+        orig = ida_ida.inf_get_procname
+        ida_ida.inf_get_procname = lambda: b"metapc"
+        try:
+            self.assertEqual(pci_report._architecture(), "x64")
+        finally:
+            ida_ida.inf_get_procname = orig
+
+
 class TestQTUils(unittest.TestCase):
 
     def test_no_qt_available(self):
@@ -326,6 +364,15 @@ class TestPluginEntry(unittest.TestCase):
         """IDA deletes the plugin object even when the load failed."""
         plugin = self.plugin.PLUGIN_ENTRY()
         plugin.term()                      # nothing was registered yet
+
+    def test_menu_icon_is_updated_by_action_name(self):
+        """update_action_icon() takes the action name, not the menu path."""
+        import ida_kernwin
+        hook = self.plugin.pci_plugin_t.register_icon()
+        del ida_kernwin.UPDATED_ICONS[:]
+        hook.updated_actions()
+        self.assertEqual(ida_kernwin.UPDATED_ICONS, [("pyclassinformer:execute",
+                                                       self.plugin.pci_plugin_t.act_icon)])
 
     def test_double_term_is_harmless(self):
         plugin = self.plugin.PLUGIN_ENTRY()

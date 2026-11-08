@@ -177,14 +177,16 @@ PyClassInformer also displays a new widget named "Method Classifier". It lists a
 
 > [!TIP]
 > Class hierarchies are represented as directories in Method Classifier.
-> Unfortunately, IDA's quick filter feature cannot filter directory contents.
-> To search them, use text search feature (Ctrl+T (find first text) and Alt+T (Find next text)).
-> For example, input a class name, a single space, and a parenthesis like "CWinApp (".
+> IDA 9.5 reworked the quick filter (typing in a list filters its *entries*), but
+> a directory name is still not guaranteed to be matched. To search the
+> directory names themselves, use the text search feature (Ctrl+T (find first
+> text) and Alt+T (Find next text)) - for example, input a class name, a single
+> space, and a parenthesis like "CWinApp (".
 >
-> Every hierarchy node also contains a `BCD at 0x...` item: the directory itself
-> cannot be double clicked to jump, but this item jumps to the base class
-> descriptor (which carries a comment describing the base class and its PMD
-> values), and it can be found with the quick filter. The `CHD at 0x...` item
+> Every hierarchy node also contains a `BCD at 0x...` item, and that *is* an
+> entry: the directory itself cannot be double clicked to jump, but this item
+> jumps to the base class descriptor (which carries a comment describing the
+> base class and its PMD values) and it can be filtered. The `CHD at 0x...` item
 > says how many entries the hierarchy has.
 >
 > A class with several vftables (multiple inheritance) gets one folder per
@@ -348,8 +350,11 @@ The changes above were checked against Hex-Rays' documentation for 9.5:
   / PySide6, `XREF_EXACT` and the Thumb/MIPS16 xrefs, the installation
   manifests, the removed `ida_struct`/`ida_enum`, the new class API (Dalvik is
   its first backend, so it does not replace an MSVC RTTI parser), the new
-  `export_listing` API, `ask_file("","")` crash fix, plugin directory ordering
-  fix. The 9.5 notes do **not** announce a `Choose` callback change.
+  `export_listing` API, the reworked quick filter (see the tip above), the
+  `ask_file("","")` crash fix (the plugin always passes a name and a filter),
+  "filtering and selecting in large folder trees is much faster" (what the
+  Method Classifier does), and the plugin directory ordering fix. The 9.5 notes
+  do **not** announce a `Choose` callback change.
 - [IDAPython porting guide for IDA 9](https://docs.hex-rays.com/developer/idapython/how-tos/idapython-porting-guide-ida-9):
   `add_struc` -> `tinfo_t.create_udt`, `add_struc_member` -> `tinfo_t.add_udm`,
   `get_struc_id` -> `get_named_type_tid`, `del_struc` -> `del_named_type`, and
@@ -369,16 +374,45 @@ The changes above were checked against Hex-Rays' documentation for 9.5:
   `set_type_cmt()` is documented as working "only for non-trivial types", which
   is why it is applied to the five RTTI structures and to nothing else.
 
+The IDAPython wrapper itself was read as well ([HexRaysSA/idapython](https://github.com/HexRaysSA/idapython),
+`pywraps/py_kernwin_choose.py`, `pywraps/py_kernwin_askform.py`,
+`pywraps/py_kernwin.py`, `examples/widgets/tabular_views/custom/chooser_with_folders.py`),
+because two things cannot be seen in the API reference alone:
+
+- `py_kernwin_choose.hpp` wires `OnGetDirTree`/`OnIndexToInode` to
+  **`CH_HAS_DIRTREE`** (`{ S_ON_GET_DIRTREE, CFEAT_GETDIRTREE, CH_HAS_DIRTREE, 0 }`),
+  and the official `chooser_with_folders.py` example passes that flag. The
+  Method Classifier used to pass the legacy `CH_TM_FULL_TREE` bit only, which the
+  Python wrapper does not consult, so the tree could silently show up as a flat
+  list on new IDA versions. Both bits are now passed (`mc_tree.TREE_FLAGS`,
+  resolved with `_kernwin_flag()`, which also accepts the `OBSOLETE_*` spelling).
+- the same example returns `(self.dirspec, self.dirtree)` from `OnGetDirTree()` -
+  the tuple keeps the `dirspec_t` alive - which is exactly what the plugin does.
+
+It also confirmed `Choose.__init__(title, cols, flags, popup_names, icon, ...)`,
+`OnGetLineAttr(n) -> (color, flags)`, `OnSelectLine(sel) -> (changed, selection)`,
+`load_custom_icon(file_name=None, data=None, format=None)` and the `Form` control
+API (`FormChangeCb`, `RadGroupControl`, `ChkGroupControl`, `EnableField`,
+`SetControlValue`, `Compile`, `Execute`, `Free`). `update_action_icon(name, icon)`
+takes the **action name**, not the menu path - the plugin passed the path, so
+the icon of the menu entry could never be set; it now passes the action name.
+
 The APIs the plugin calls were re-checked one by one for the final review:
 
 | Module | Used for | Verified |
 |---|---|---|
-| `ida_bytes` | RTTI bytes, vftable slots, comments | `set_cmt(ea, cmt, rptble) -> bool`, `get_cmt(ea, rptble) -> Union[str, None]` (the code turns `None` into `""`), `del_items(ea, DELIT_SIMPLE, size)`, `create_struct` |
+| `ida_bytes` | RTTI bytes, vftable slots, comments | `set_cmt(ea, cmt, rptble) -> bool`, `get_cmt(ea, rptble) -> Union[str, None]` (the code turns `None` into `""`), `del_items(ea, DELIT_SIMPLE, size)`, `create_struct(ea, **length**, tid, force=False)` - the argument order was checked against the reference, because passing the size where the type id belongs would silently destroy the structure |
 | `ida_funcs` | function comments, `FUNC_LIB` | `get_func_cmt(func, rptble)`/`set_func_cmt(func, cmt, rptble)`, `get_func`, `update_func`, `FUNC_LUMINA`/`FUNC_THUNK` |
 | `ida_typeinf` | RTTI structures, type comments | `create_udt`/`add_udm`/`set_named_type`/`set_type_cmt` return `tinfo_code_t`, `apply_tinfo`, `udm_t.offset`/`size` in bits, `get_named_type_tid` |
 | `ida_kernwin` | chooser, form, actions, docking | `Choose` (`CH_*`, `CHCOL_*` via `chcol()`), `OnGetLineAttr(n) -> (color, flags)`, `get_chooser_rows(cri, chooser, GCRF_*)`, `set_dock_pos(title, dest, orient)` (`DP_FLOATING`, then `DP_TAB` next to "Functions"; the two calls are guarded separately), `ask_file`, `UI_Hooks` |
 | `ida_dirtree` | class folders, moving functions | `dirtree_t.rename()` moves an entry into a directory (`DTE_OWN_CHILD`/`DTE_BAD_PATH` error codes), `mkdir()` wants a trailing `/`, `dirtree_iterator_t.cursor`/`.pattern`, `get_std_dirtree(DIRTREE_FUNCS/NAMES)` |
-| `ida_ida`/`ida_idp`/`ida_nalt`/`ida_segment`/`ida_xref`/`ida_name`/`ida_auto`/`ida_loader`/`idc`/`idautils` | architecture, segments, xrefs, names, auto analysis | `inf_get_procname()`, `ph.id`, `XREF_DATA`/`XREF_EXACT`, `demangle_name`, `SN_NOCHECK`/`SN_FORCE`, `REF_OFF32`/`REF_OFF64`, `get_strlit_contents()` |
+| `ida_ida`/`ida_idp`/`ida_nalt`/`ida_segment`/`ida_xref`/`ida_name`/`ida_auto`/`ida_loader`/`idc`/`idautils` | architecture, segments, xrefs, names, auto analysis | `inf_get_procname()`, `get_segm_class(s) -> str \| None`, `ph.id`, `XREF_DATA`/`XREF_EXACT`, `demangle_name`, `SN_NOCHECK`/`SN_FORCE`, `REF_OFF32`/`REF_OFF64`, `get_strlit_contents()` (returns `bytes`, so only that one is decoded) |
+
+IDA 9.0 made the string getters (`get_segm_class()`, `inf_get_procname()`,
+names, paths) return `str`. The code compares them through
+`ida_compat.as_text()`, so a `bytes` value - an older IDA, or a processor module
+that was not updated - can never silently turn into "no `.rdata` section found"
+or "unknown architecture".
 
 `tests/test_apidocs.py` keeps this honest: it walks the syntax tree of every
 plugin module and fails if an `ida_xxx.name` reference does not exist in the
@@ -404,7 +438,7 @@ images (`tests/fakepe.py`), so the parser, the report writers and the UI
 classes can be exercised on any machine:
 
 ```bash
-python3 tests/run_tests.py        # 152 tests, no IDA required
+python3 tests/run_tests.py        # 158 tests, no IDA required
 python3 tests/run_tests.py -v
 ```
 

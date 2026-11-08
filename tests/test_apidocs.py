@@ -150,9 +150,28 @@ class TestDocumentedConstants(unittest.TestCase):
     def test_choose_flags(self):
         import ida_kernwin
         # used in pci_chooser/mc_tree; the mock documents the 9.5 values
-        for name in ("CH_MULTI", "CH_ATTRS", "CH_TM_FULL_TREE",
+        for name in ("CH_MULTI", "CH_ATTRS", "CH_HAS_DIRTREE", "CH_TM_FULL_TREE",
                      "CH_NON_PERSISTED_TREE", "CH_RENAME_IS_EDIT"):
             self.assertTrue(hasattr(ida_kernwin, name), name)
+
+    def test_the_method_classifier_requests_the_documented_tree_flag(self):
+        """IDA 9.5 presents a tree through CH_HAS_DIRTREE + OnGetDirTree()."""
+        import ida_kernwin
+        import pyclassinformer.mc_tree as mc_tree
+        self.assertEqual(mc_tree.TREE_FLAGS & ida_kernwin.CH_HAS_DIRTREE,
+                         ida_kernwin.CH_HAS_DIRTREE)
+        # the legacy bit is kept for older IDA versions, it must not be lost
+        self.assertTrue(mc_tree.TREE_FLAGS & ida_kernwin.CH_TM_FULL_TREE)
+        self.assertTrue(hasattr(mc_tree.mc_tree_t, "OnGetDirTree"))
+        self.assertTrue(hasattr(mc_tree.mc_tree_t, "OnIndexToInode"))
+
+    def test_obsolete_flag_names_are_still_accepted(self):
+        """_kernwin_flag() falls back to the OBSOLETE_* spelling."""
+        import ida_kernwin
+        import pyclassinformer.mc_tree as mc_tree
+        self.assertEqual(mc_tree._kernwin_flag("CH_HAS_DIRTREE"),
+                         ida_kernwin.CH_HAS_DIRTREE)
+        self.assertEqual(mc_tree._kernwin_flag("NO_SUCH_FLAG", 7), 7)
 
     def test_chooser_row_flags(self):
         import ida_kernwin
