@@ -384,7 +384,7 @@ images (`tests/fakepe.py`), so the parser, the report writers and the UI
 classes can be exercised on any machine:
 
 ```bash
-python3 tests/run_tests.py        # 144 tests, no IDA required
+python3 tests/run_tests.py        # 146 tests, no IDA required
 python3 tests/run_tests.py -v
 ```
 

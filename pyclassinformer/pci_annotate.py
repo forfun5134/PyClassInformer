@@ -87,12 +87,14 @@ def _count(counters, key):
 # --------------------------------------------------------------------------
 # inheritance information (the same data as the Hierarchy column)
 # --------------------------------------------------------------------------
-def hierarchy_names(col):
+def hierarchy_names(col, unique=True):
     """The complete hierarchy of ``col``: ``['Derived', 'Base1', 'Base2']``.
 
     ``col.bases`` is the base class array of the class hierarchy descriptor, so
     the first entry is the class itself and the rest are its base classes, in
     the order IDA/MSVC stores them (the same order as the "Hierarchy" column).
+    With ``unique=False`` repeated names are kept, because the base class array
+    contains one entry per subobject even when the class repeats (diamond).
     """
     names = []
     try:
@@ -101,7 +103,7 @@ def hierarchy_names(col):
         bases = []
     for bcd in bases:
         name = getattr(bcd, "name", None)
-        if name and name not in names:
+        if name and (not unique or name not in names):
             names.append(name)
     if not names and getattr(col, "name", None):
         names.append(col.name)
@@ -255,6 +257,8 @@ def annotate(result, funcs=True, code=True, slots=True, types=True):
             roles[funcea].append(text)
 
     for vtable, col in result.items():
+        if not getattr(col, "name", None):
+            continue            # a candidate without a class name: nothing to say
         if code:
             # the locator and the type descriptor themselves
             names = hierarchy_names(col)
@@ -287,8 +291,9 @@ def annotate(result, funcs=True, code=True, slots=True, types=True):
                                                  "hierarchy entries"),
                                          ", flags: " + flags if flags else ""), counters)
                 if col.bcaea != ida_idaapi.BADADDR:
+                    # the array has one entry per subobject: keep duplicates
                     set_code_comment(col.bcaea, "base class array of {}: {}".format(
-                        owner, ", ".join(names)), counters)
+                        owner, ", ".join(hierarchy_names(col, unique=False))), counters)
                 try:
                     bcds = list(col.bases)
                 except Exception:

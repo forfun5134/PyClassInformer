@@ -304,6 +304,45 @@ class TestManyOwners(unittest.TestCase):
         self.assertEqual(pci_annotate.MAX_ROLES, 3)
 
 
+class TestDiamond(unittest.TestCase):
+    """A base class that appears twice in the base class array."""
+
+    def _col(self):
+        import types
+
+        def bcd(name):
+            return types.SimpleNamespace(name=name, ea=0, mdisp=0, pdisp=-1, vdisp=0)
+
+        return types.SimpleNamespace(
+            name="D", ea=0x1000, offset=0, chd=object(), chdea=0x1010, bcaea=0x1020,
+            tdea=0xFFFFFFFF, col_ptr_ea=0x1030, vfeas=[], refeas=[], refaddrs=[],
+            nb_bases=5, flag_names="",
+            bases=[bcd("D"), bcd("B"), bcd("A"), bcd("C"), bcd("A")],
+            get_paths_by_offset=lambda: [])
+
+    def test_base_class_array_keeps_repeated_entries(self):
+        import image
+        import pyclassinformer.pci_annotate as pci_annotate
+        col = self._col()
+        pci_annotate.annotate({0x2000: col}, funcs=False, slots=False, types=False)
+        # the array has one entry per subobject, the hierarchy note does not
+        self.assertEqual(image.IMAGE.cmts[(0x1020, False)],
+                         "[PyClassInformer] base class array of D: D, B, A, C, A")
+        self.assertEqual(pci_annotate.hierarchy_names(col), ["D", "B", "A", "C"])
+        self.assertEqual(pci_annotate.hierarchy_names(col, unique=False),
+                         ["D", "B", "A", "C", "A"])
+        self.assertEqual(pci_annotate.hierarchy_text(col), "D: B, A, C")
+
+    def test_hierarchy_entry_count_is_the_array_size(self):
+        import image
+        import pyclassinformer.pci_annotate as pci_annotate
+        pci_annotate.annotate({0x2000: self._col()},
+                              funcs=False, slots=False, types=False)
+        self.assertEqual(image.IMAGE.cmts[(0x1010, False)],
+                         "[PyClassInformer] class hierarchy descriptor of D "
+                         "(5 hierarchy entries)")
+
+
 class TestOptions(AnnotationBase):
 
     def test_only_types(self):

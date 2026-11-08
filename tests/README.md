@@ -38,8 +38,12 @@ Requires nothing but Python 3.8+ (the standard library only).
 - JSON/CSV/text exports, including the "nothing to export" paths
 - renaming of virtual methods/ctors and the `FUNC_LIB` flag for library classes
 - the annotations: the text of the vftable slot, ctor/dtor, method and type
-  comments, that a second run adds nothing, and that comments of the user are
-  preserved
+  comments (including the class hierarchy, the base subobject offsets, the
+  pure virtual count and the CHD flags), that a second run adds nothing, that
+  comments of the user are preserved, that `_purecall` gets no function comment
+  and that a shared method lists at most three classes
+- that every base class descriptor of the Method Classifier can be reached
+  (the `BCD at 0x...` items) and that the CHD item counts the hierarchy entries
 - the folder moves of the functions (`mvvm`/`mvcd`) in the Functions and Names
   dirtrees, and the dirtree helpers (`get_full_paths`, `get_abs_path_by_inode`,
   `get_parent_dir_by_inode`)
