@@ -6,3 +6,4 @@ idaapi.py
 .vscode
 *.pyc
 .DS_Store
+__pycache__/

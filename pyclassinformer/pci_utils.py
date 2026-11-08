@@ -1,40 +1,132 @@
-import struct
-
-import idc
 import idautils
 import ida_bytes
-import ida_search
 import ida_idaapi
 import ida_segment
-import ida_xref
 import ida_typeinf
 import ida_nalt
-import ida_offset
-import ida_name
-import ida_ida
+import ida_idp
 
 try:
     ModuleNotFoundError
 except NameError:
     ModuleNotFoundError = ImportError
 
-ida_9_or_later = False
-try:
-    import ida_struct
-    from ida_struct import get_member_by_name
-except ModuleNotFoundError:
-    # for IDA 9.0
-    ida_9_or_later = True
-    def get_member_by_name(tif, name):
-        if not tif.is_struct():
-            return None
-    
-        udm = ida_typeinf.udm_t()
-        udm.name = name
-        idx = tif.find_udm(udm, ida_typeinf.STRMEM_NAME)
-        if idx != -1:
-            return udm
+ida_idaapi.require("pyclassinformer")
+ida_idaapi.require("pyclassinformer.ida_compat")
+import pyclassinformer.ida_compat as ida_compat
+
+ida_9_or_later = ida_compat.IS_IDA_9_OR_LATER
+
+
+def get_member_by_name(tif, name):
+    """Return the ida_typeinf.udm_t of the member ``name`` in ``tif``.
+
+    IDA 8.5 removed ida_struct.get_member_by_name(), and IDA 9.0 removed
+    ida_struct completely, so this helper works on every supported version.
+    """
+    if tif is None:
         return None
+    if not tif.is_struct():
+        return None
+
+    udm = ida_typeinf.udm_t()
+    udm.name = name
+    idx = tif.find_udm(udm, ida_typeinf.STRMEM_NAME)
+    if idx != -1:
+        return udm
+    # fall back to iterating the members (older IDAPython builds)
+    udt = ida_typeinf.udt_type_data_t()
+    if tif.get_udt_details(udt):
+        for member in udt:
+            if member.name == name:
+                return member
+    return None
+
+
+def get_offset_ptr(v, force_bitness=False):
+    """Read the pointer/offset stored at ``v``."""
+    target_ea = ida_idaapi.BADADDR
+    if v == ida_idaapi.BADADDR:
+        return target_ea
+    flags = ida_bytes.get_full_flags(v)
+    if not force_bitness and ida_bytes.is_qword(flags):
+        target_ea = ida_bytes.get_qword(v)
+    elif not force_bitness and ida_bytes.is_dword(flags):
+        target_ea = ida_bytes.get_dword(v)
+    else:
+        seg = ida_segment.getseg(v)
+        if seg is None:
+            return target_ea
+        off_size = 1 << (seg.bitness + 1)
+        if off_size == 8:
+            target_ea = ida_bytes.get_qword(v)
+        elif off_size == 4:
+            target_ea = ida_bytes.get_dword(v)
+        elif off_size == 2:
+            target_ea = ida_bytes.get_word(v)
+        else:
+            target_ea = ida_bytes.get_byte(v)
+    return target_ea
+
+
+def get_offset_fptr(v, force_bitness=False, u=None):
+    """Read the pointer at ``v`` and return it if it points to code."""
+    target_ea = ida_idaapi.BADADDR
+    tmp_ea = get_offset_ptr(v, force_bitness)
+    if u is not None:
+        tmp_ea = u.normalize_code_ptr(tmp_ea)
+    if tmp_ea == ida_idaapi.BADADDR:
+        return target_ea
+    flags = ida_bytes.get_full_flags(tmp_ea)
+    if ida_bytes.is_code(flags):
+        target_ea = tmp_ea
+    return target_ea
+
+
+def get_vtbl_methods(target_ea, u=None, max_entries=8192):
+    """Yield the addresses of the virtual methods stored in the vftable.
+
+    A vftable is a run of pointers to code.  The run ends at the first slot
+    that does not point to code anymore (e.g. the RTTI pointer of the next
+    vftable, which points into a data section), at the end of the segment, or
+    when a structure type starts.
+
+    The previous implementation relied on ida_bytes.next_that(has_xref) to
+    find the end of the vftable, which depends on whether IDA created offsets
+    for the method slots - something that differs between IDA versions and
+    analysis settings (and made the plugin report a single method per vftable
+    in some databases).  Walking the slots is deterministic.
+    """
+    if u is None:
+        u = utils.get()
+
+    seg = ida_segment.getseg(target_ea)
+    if seg is None:
+        return
+
+    item_diff = 1 << (seg.bitness + 1)
+    ea = target_ea
+    n = 0
+    while ea != ida_idaapi.BADADDR and ea + item_diff <= seg.end_ea and n < max_entries:
+        # stop when the slot does not hold a pointer to code anymore
+        target = get_offset_fptr(ea, force_bitness=True, u=u)
+        if target == ida_idaapi.BADADDR:
+            break
+
+        yield target
+        n += 1
+
+        nxt = ea + item_diff
+        if nxt + item_diff > seg.end_ea:
+            break
+        # stop at the beginning of another (typed) structure such as the RTTI
+        # pointer of the next vftable
+        try:
+            if ida_bytes.is_struct(ida_bytes.get_full_flags(nxt)):
+                break
+        except Exception:
+            pass
+        ea = nxt
 
 
 class utils(object):
@@ -42,15 +134,27 @@ class utils(object):
     data = 0
     rdata = 0
     valid_ranges = []
-    within = lambda self, x, rl: any([True for r in rl if r[0]<=x<=r[1]])
+    within = lambda self, x, rl: any([True for r in rl if r[0] <= x <= r[1]])
 
     REF_OFF = 0
     x64 = 0
     PTR_TYPE = 0
     PTR_SIZE = 0
 
+    #: cache of instances, keyed by the currently opened database
+    _instances = {}
+
+    #: cache for get_cols_by_col(): (result dict, {(tdea, chdea): [COL]})
+    _cols_cache = None
+
     def __init__(self):
         self.text = ida_segment.get_segm_by_name(".text")
+        if self.text is None:
+            # some binaries rename sections (packed/protected samples).  Fall
+            # back to the first code segment so that vftables can still be
+            # validated.
+            self.text = self._get_code_segment()
+
         self.data = ida_segment.get_segm_by_name(".data")
         self.rdata = ida_segment.get_segm_by_name(".rdata")
         # try to use rdata if there actually is an rdata segment, otherwise just use data
@@ -59,12 +163,12 @@ class utils(object):
         # fail safe for renaming segment names
         else:
             self.valid_ranges = []
-            for n in range(ida_segment.get_segm_qty()):
-                seg = ida_segment.getnseg(n)
-                if seg and ida_segment.get_segm_class(seg) == "DATA" and seg and not seg.is_header_segm():
-                    self.valid_ranges.append((seg.start_ea, seg.end_ea))
+            for seg in utils.get_data_segments():
+                self.valid_ranges.append((seg.start_ea, seg.end_ea))
 
-        self.x64 = (ida_segment.getnseg(0).bitness == 2)
+        # importing the plugin does not require an open database
+        seg0 = ida_segment.getnseg(0)
+        self.x64 = (seg0 is not None and seg0.bitness == 2)
         if self.x64:
             self.PTR_TYPE = ida_bytes.FF_QWORD
             self.REF_OFF = ida_nalt.REF_OFF64
@@ -75,18 +179,76 @@ class utils(object):
             self.REF_OFF = ida_nalt.REF_OFF32
             self.PTR_SIZE = 4
             self.get_ptr = ida_bytes.get_32bit
-            
+
+        # ARM (32 bit) stores the Thumb state in the lowest bit of function
+        # pointers, as well as RTTI vftable entries.
+        try:
+            self.is_arm32 = (ida_idp.ph.id == ida_idp.PLFM_ARM and not self.x64)
+        except Exception:
+            self.is_arm32 = False
+
+    @classmethod
+    def get(cls, refresh=False):
+        """Return the utils instance for the database that is currently open.
+
+        ``ida_idaapi.require()`` caches Python modules, so a module level
+        ``utils()`` instance would keep pointing to a database that the user
+        has already closed.  Reusing a per-database instance fixes that.
+        """
+        try:
+            key = (ida_nalt.get_input_file_path(), ida_nalt.get_imagebase())
+        except Exception:
+            key = None
+        if key is not None and not refresh:
+            inst = cls._instances.get(key)
+            if inst is not None:
+                return inst
+        inst = cls()
+        if key is not None:
+            cls._instances = {key: inst}
+        return inst
+
+    @staticmethod
+    def _get_code_segment():
+        for n in range(ida_segment.get_segm_qty()):
+            seg = ida_segment.getnseg(n)
+            if seg and ida_compat.as_text(ida_segment.get_segm_class(seg)) == "CODE":
+                return seg
+        return None
+
     @staticmethod
     def get_data_segments():
         for n in range(ida_segment.get_segm_qty()):
             seg = ida_segment.getnseg(n)
-            if seg and ida_segment.get_segm_class(seg) == "DATA" and seg and not seg.is_header_segm():
+            if seg and ida_compat.as_text(ida_segment.get_segm_class(seg)) == "DATA" \
+                    and not seg.is_header_segm():
                 yield seg
-            
+
     def update_valid_ranges(self):
         self.valid_ranges = []
         for seg in utils.get_data_segments():
             self.valid_ranges.append((seg.start_ea, seg.end_ea))
+
+    def normalize_code_ptr(self, ea):
+        """Clear the Thumb bit of a function pointer on 32 bit ARM."""
+        if ea == ida_idaapi.BADADDR:
+            return ea
+        if self.is_arm32 and (ea & 1):
+            return ea & ~1
+        return ea
+
+    def in_text(self, ea):
+        if self.text is None:
+            return True
+        return self.text.start_ea <= ea < self.text.end_ea
+
+    def valid_ptr(self, ea, rl=None):
+        """Return True if ``ea`` points somewhere inside the database."""
+        if ea is None or ea == ida_idaapi.BADADDR or ea == 0:
+            return False
+        if rl is None:
+            rl = self.valid_ranges
+        return self.within(ea, rl)
 
     # for 32-bit binaries, the RTTI structs contain absolute addresses, but for
     # 64-bit binaries, they're offsets from the image base.
@@ -95,25 +257,63 @@ class utils(object):
             return ida_nalt.get_imagebase()
         else:
             return 0
-        
-    def get_strlen(self, addr, max_len=500):
-        # 50 is sometimes too short. I increased a number here.
-        strlen = 0
-        #while get_byte(addr+strlen) != 0x0 and strlen < 50:
-        while ida_bytes.get_byte(addr+strlen) != 0x0 and strlen < max_len:
-            strlen+=1
-        #assume no names will ever be longer than 50 bytes
-        #if strlen == 50:
-        if strlen == max_len:
+
+    def get_strlit(self, addr, max_len=8192):
+        """Return the NUL terminated string at ``addr`` as bytes, or None.
+
+        RTTI class names are mangled and can easily exceed a few hundred
+        characters (template heavy STL code), so the whole string is read in
+        one go instead of scanning bytes one by one.
+        """
+        if addr is None or addr == ida_idaapi.BADADDR:
             return None
-        return strlen
+        try:
+            b = ida_bytes.get_strlit_contents(addr, -1, ida_nalt.STRTYPE_C)
+        except Exception:
+            b = None
+        if b:
+            if len(b) > max_len:
+                return None
+            return b
+
+        # fall back to a byte wise scan (e.g. when the bytes are undefined)
+        length = 0
+        while length < max_len:
+            c = ida_bytes.get_byte(addr + length)
+            if c is None or c == 0 or c == ida_bytes.BADADDR:
+                break
+            length += 1
+        if length == 0 or length >= max_len:
+            return None
+        try:
+            return ida_bytes.get_bytes(addr, length)
+        except Exception:
+            return None
+
+    def get_strlen(self, addr, max_len=8192):
+        b = self.get_strlit(addr, max_len)
+        if b is None:
+            return None
+        return len(b)
 
     def is_vtable(self, addr):
-        function = self.get_ptr(addr)
-        # Check if vtable has ref and its first pointer lies within code segment
-        if ida_bytes.has_xref(ida_bytes.get_full_flags(addr)) and function >= self.text.start_ea and function <= self.text.end_ea:
-            return True
-        return False
+        """Is ``addr`` the first slot of a vftable (i.e. a pointer to code)?
+
+        The slot in front of a vftable holds the pointer to the RTTI complete
+        object locator, so the two slots are checked together.  This does not
+        depend on the presence of xrefs, which makes the detection stable
+        across IDA versions and analysis settings.
+        """
+        function = self.normalize_code_ptr(self.get_ptr(addr))
+        if not self.in_text(function):
+            return False
+        # the slot in front of a vftable points to its RTTI in a data section
+        if addr < self.PTR_SIZE:
+            return False
+        colptr = self.get_ptr(addr - self.PTR_SIZE)
+        if not self.within(colptr, self.valid_ranges):
+            return False
+        return True
 
     @staticmethod
     def to_signed32(n):
@@ -121,8 +321,27 @@ class utils(object):
         return n | (-(n & 0x80000000))
 
     @staticmethod
-    def get_refs_to(ea):
-        for xref in idautils.XrefsTo(ea, 0):
+    def get_refs_to(ea, exact=True):
+        """Yield the addresses that reference ``ea``.
+
+        IDA 9.5 also reports pointers to Thumb functions (function address+1)
+        unless ida_xref.XREF_EXACT is used.  Passing XREF_EXACT keeps the
+        behaviour identical on every version.
+        """
+        for xref in idautils.XrefsTo(ea, ida_compat.xref_flags(0, exact)):
+            yield xref.frm
+
+    @staticmethod
+    def get_data_refs_to(ea, exact=True):
+        """Yield the addresses that reference ``ea`` as data.
+
+        This is what :func:`idautils.DataRefsTo` does (``XREF_DATA``), plus
+        ``XREF_EXACT`` so that IDA 9.5's extra Thumb/MIPS16 aliases are not
+        reported twice.
+        """
+        import ida_xref
+        flags = ida_compat.xref_flags(getattr(ida_xref, "XREF_DATA", 0x02), exact)
+        for xref in idautils.XrefsTo(ea, flags):
             yield xref.frm
 
     @classmethod
@@ -131,82 +350,120 @@ class utils(object):
         if tif.get_named_type(None, name, ida_typeinf.BTF_STRUCT):
             for xref in cls.get_refs_to(tif.get_tid()):
                 yield xref
-                
-    def add_ptr_or_rva_member(self, sid, mname, mtype_name, array=False, idx=-1):
-        sname = idc.get_struc_name(sid)
-        
-        # if idx is not specified, insert the member at the end of the structure
-        if idx < 0:
-            idx = idc.get_member_qty(sid)
-            
-        idc.add_struc_member(sid, mname, ida_idaapi.BADADDR, ida_bytes.FF_DATA|ida_bytes.FF_DWORD|ida_bytes.FF_0OFF, -1, 4)
-        self.set_ptr_or_rva_member(sid, mname, mtype_name, array, idx)
-        
-    def set_ptr_or_rva_member(self, sid, mname, mtype_name, array=False, idx=-1):
-        sname = idc.get_struc_name(sid)
-        
-        # if idx is not specified, modifie the last member
-        if idx < 0:
-            idx = idc.get_member_qty(sid) - 1
-            
-        r = None
-        if self.x64:
-            reftype = ida_nalt.REFINFO_RVAOFF|self.REF_OFF
-            mtif = get_ptr_type(mtype_name, ptr_size=ida_typeinf.TAPTR_PTR32, array=array)
-            if ida_9_or_later:
-                r = get_val_repr(ida_typeinf.FRB_OFFSET, reftype)
-        else:
-            reftype = self.REF_OFF
-            mtif = get_ptr_type(mtype_name, ptr_size=0, array=array)
-            
-        if ida_9_or_later:
-            tif = ida_typeinf.tinfo_t()
-            tif.get_named_type(None, sname)
-            udt = ida_typeinf.udt_type_data_t()
-            tif.set_udm_type(idx, mtif, 0, r)
-            tif.get_udt_details(udt)
-        else:
-            s = ida_struct.get_struc(sid)
-            ida_struct.set_member_tinfo(s, s.get_member(idx), 0, mtif, 0)
-            idc.set_member_type(sid, idc.get_member_offset(sid, mname), ida_bytes.FF_DATA|ida_bytes.FF_DWORD|ida_bytes.FF_0OFF, -1, 1, reftype=reftype)
-        
+
     @staticmethod
     def get_moff_by_name(struc, name):
+        """Return the byte offset of a member of a structure."""
+        member = get_member_by_name(struc, name)
+        if member is None:
+            return -1
         try:
-            offset = get_member_by_name(struc, name).soff
+            return member.soff
         except AttributeError:
-            # for ida 9.0
-            offset = get_member_by_name(struc, name).offset // 8
-        return offset
-    
-    @classmethod
-    def get_cols_by_col(cls, col, vftables):
-        # get offsets in COLs by finding xrefs for multiple inheritance
-        x = set([xrea for xrea in cls.get_refs_to(col.tdea)])
-        y = set([xrea for xrea in cls.get_refs_to(col.tid)])
-        # If the target is a multi inheritance class, TD or CHD has multiple xrefs from multiple COLs.
-        # Here, get the COLs
-        coleas = (x&y)
-        cols = sorted(list(filter(lambda x: x.ea in coleas, vftables.values())), key=lambda x: x.ea in coleas)
-        return cols
+            # ida_typeinf.udm_t stores offsets in bits
+            return member.offset // 8
 
-    @classmethod
-    def get_col_offs_by_cols(cls, cols):
-        col_offs = [ida_bytes.get_32bit(x.ea+cls.get_moff_by_name(x.struc, "offset")) for x in cols]
+    def get_cols_by_col(self, col, vftables):
+        """Return every COL that belongs to the same class as ``col``.
+
+        A class with multiple vftables (multiple inheritance) has one COL per
+        vftable, and all of them share the same type descriptor and the same
+        class hierarchy descriptor.  Grouping the COLs this way is much more
+        reliable than the xref based detection alone, which depends on how IDA
+        happened to create the references.
+
+        The grouping is cached per result dictionary: without it, looking up
+        the COLs of every vftable is quadratic (one full pass per vftable),
+        which is slow on binaries with hundreds of classes.
+        """
+        tdea = getattr(col, "tdea", None)
+        chdea = getattr(col, "chdea", None)
+
+        cols = None
+        if tdea is not None and chdea is not None:
+            groups = self._col_groups(vftables)
+            key = (tdea, chdea)
+            cols = {}
+            for other in groups.get(key, ()):
+                cols[other.ea] = other
+            for other in groups.get((tdea, None), ()):
+                cols[other.ea] = other
+            for other in groups.get((None, chdea), ()):
+                cols[other.ea] = other
+            cols[col.ea] = col
+            if not cols:
+                cols = None
+
+        if cols is None:
+            # generic fall back for objects without the RTTI descriptors
+            cols = {}
+            for other in vftables.values():
+                if other is col:
+                    cols[other.ea] = other
+                    continue
+                try:
+                    same_td = other.tdea != ida_idaapi.BADADDR and other.tdea == col.tdea
+                    same_chd = other.chdea != ida_idaapi.BADADDR and other.chdea == col.chdea
+                except AttributeError:
+                    continue
+                if same_td or same_chd:
+                    cols[other.ea] = other
+
+        # xref based detection, as a fallback for caller provided COL objects
+        try:
+            x = set(self.get_refs_to(col.tdea))
+            y = set(self.get_refs_to(col.tid))
+            for other in vftables.values():
+                if other.ea in (x & y):
+                    cols[other.ea] = other
+        except Exception:
+            pass
+
+        return sorted(cols.values(), key=lambda c: (c.offset, c.ea))
+
+    def _col_groups(self, vftables):
+        """Cache of ``(tdea, chdea) -> [COL]`` for the given result dictionary."""
+        cache = getattr(self, "_cols_cache", None)
+        if cache is not None and cache[0] is vftables:
+            return cache[1]
+
+        groups = {}
+        for other in vftables.values():
+            tdea = getattr(other, "tdea", None)
+            chdea = getattr(other, "chdea", None)
+            groups.setdefault((tdea, chdea), []).append(other)
+        self._cols_cache = (vftables, groups)
+        return groups
+
+    def get_col_offs_by_cols(self, cols):
+        col_offs = []
+        for col in cols:
+            # the offset of the "offset" member is known from the layout spec
+            # (see pyclassinformer.msvc_rtti), so prefer it over the database
+            off = None
+            try:
+                off = col.offsets.get("offset")
+            except AttributeError:
+                off = None
+            if off is None:
+                off = self.get_moff_by_name(getattr(col, "struc", None), "offset")
+            if off is None or off < 0:
+                # RTTICompleteObjectLocator::offset follows signature in both
+                # bitnesses (0, then 4)
+                off = 4
+            col_offs.append(ida_bytes.get_32bit(col.ea + off))
         return col_offs
 
-    @classmethod
-    def get_col_offs(cls, col, vftables):
-        cols = cls.get_cols_by_col(col, vftables)
+    def get_col_offs(self, col, vftables):
+        cols = self.get_cols_by_col(col, vftables)
         # get the offsets in COLs
-        col_offs = cls.get_col_offs_by_cols(cols)
+        col_offs = self.get_col_offs_by_cols(cols)
         return col_offs
 
-    @classmethod
-    def get_col_bases(cls, col, vftables):
+    def get_col_bases(self, col, vftables):
         # for checking if a class has multiple vftables or not
-        col_offs = cls.get_col_offs(col, vftables)
-        
+        col_offs = self.get_col_offs(col, vftables)
+
         bases = []
         paths = col.chd.bca.paths.get(col.offset, [])
         for path in paths:
@@ -224,203 +481,3 @@ class utils(object):
                 if append and bcd not in bases:
                     bases.append(bcd)
         return bases
-
-
-def add_struc_by_name_and_def(name, struc_def):
-    tif = ida_typeinf.tinfo_t(struc_def)
-    tif.set_named_type(None, name, ida_typeinf.NTF_REPLACE)
-    return tif
-
-
-def build_udm(tif, name, msize=0, mtype=ida_typeinf.BTF_INT, moffset=-1, vrepr=None):
-    # create a struct member
-    udm = ida_typeinf.udm_t()
-    udm.name = name
-    if msize > 0:
-        udm.size = msize * 8
-        
-    udm.offset = tif.get_unpadded_size() * 8
-    if moffset >= 0:
-        udm.offset = moffset * 8
-        
-    udm.type = ida_typeinf.tinfo_t(mtype)
-    
-    if vrepr:
-        udm.set_value_repr(vrepr)
-        
-    return udm
-
-
-def add_struc(name):
-    tif = ida_typeinf.tinfo_t()
-    udt = ida_typeinf.udt_type_data_t()
-    # add the structure to local types
-    if tif.create_udt(udt):
-        tif.set_named_type(None, name)
-    return tif
-
-
-def add_struc_member(tif, name, msize=0, mtype=None, moffset=-1, vrepr=None):
-    udm = build_udm(tif, name, msize, mtype, moffset, vrepr)
-    tif.add_udm(udm, ida_typeinf.ETF_MAY_DESTROY|ida_typeinf.ETF_FORCENAME)
-    return udm
-
-
-def create_ptr_attr(data_type=ida_typeinf.BTF_INT, attr=ida_typeinf.TAPTR_PTR32):
-    # pointer description
-    pi = ida_typeinf.ptr_type_data_t()
-    pi.obj_type = ida_typeinf.tinfo_t(data_type)
-    pi.taptr_bits = attr
-    # pointer type
-    mtif = ida_typeinf.tinfo_t()
-    mtif.create_ptr(pi)
-    return mtif
-
-
-def get_ptr_type(type_name, ptr_size=ida_typeinf.TAPTR_PTR32, array=False):
-    mtif = ida_typeinf.tinfo_t()
-    if mtif.get_named_type(None, type_name):
-        # for 64-bit, the member stores an RVA.
-        # create "*__ptr32" here.
-        if ptr_size:
-            mtif = create_ptr_attr(mtif, ptr_size)
-        # for 32-bit, the member stores a pointer.
-        # just create a pointer
-        else:
-            mtif.create_ptr(mtif)
-            
-        # for BCA
-        if array:
-            mtif.create_array(mtif)
-        return mtif
-    return None
-
-
-"""
-def get_refinfo(reftype=ida_nalt.REF_OFF64, flags=ida_nalt.REFINFO_RVAOFF):
-    ri = ida_nalt.refinfo_t()
-    ri.flags = flags
-    ri.target = 0
-    ri.set_type(reftype)
-    return ri
-
-
-def get_offset_refinfo(reftype=ida_nalt.REF_OFF64, flags=ida_nalt.REFINFO_RVAOFF):
-    ri = get_refinfo(reftype, flags)
-    vr = ida_typeinf.value_repr_t()
-    vr.set_vtype(ida_typeinf.FRB_OFFSET)
-    vr.ri = ri
-    return vr
-
-
-def set_opinfo(tif, udt, udt_idx):
-    oi = ida_nalt.opinfo_t()
-    oi.ri = get_refinfo(reftype=ida_nalt.REF_OFF64, flags=ida_nalt.REFINFO_RVAOFF)
-    mtif = create_ptr_attr(ida_typeinf.BTF_INT, ida_typeinf.TAPTR_PTR32)
-    flags = ida_bytes.off_flag()
-    # Apply the offset and RVA attributes to udm target.
-    udt[udt_idx].repr.from_opinfo(flags, 0, oi, None)
-    tif.set_udm_repr(udt_idx, udt[udt_idx].repr)
-    tif.set_udm_type(udt_idx, mtif)
-"""
-
-
-def get_val_repr(vtype=-1, flags=ida_nalt.REF_OFF64|ida_nalt.REFINFO_RVAOFF):
-    if vtype < 0:
-        vtype = ida_typeinf.FRB_OFFSET
-    r = ida_typeinf.value_repr_t()
-    r.set_vtype(vtype)
-    r.ri.init(flags)
-    return r
-
-
-"""
-struc_def = '''
-struct RTTICompleteObjectLocator
-{
-  int signature;
-  int offset;
-  int cdOffset;
-  int pTypeDescriptor;
-  int pClassDescriptor;
-  int pSelf;
-};
-'''
-name = "RTTICompleteObjectLocator"
-tif = add_struc_by_name_and_def(name, struc_def)
-
-r = get_val_repr(ida_typeinf.FRB_OFFSET, ida_nalt.REF_OFF64|ida_nalt.REFINFO_RVAOFF)
-mtif = create_ptr_attr(ida_typeinf.BTF_INT, ida_typeinf.TAPTR_PTR32)
-for i in range(3, 6):
-    tif.set_udm_type(i, mtif, 0, r)
-ida_typeinf.apply_tinfo(here(), tif, ida_typeinf.TINFO_DEFINITE)
-"""
-
-
-def get_value_with_size(val, vsize):
-    off_v = ida_idaapi.BADADDR
-    if vsize == 8:
-        off_v = ida_bytes.get_qword(val)
-    elif vsize == 4:
-        off_v = ida_bytes.get_dword(val)
-    elif vsize == 2:
-        off_v = ida_bytes.get_word(val)
-    elif vsize == 1:
-        off_v = ida_bytes.get_byte(val)
-    return off_v
-
-
-def get_offset_ptr(v, force_bitness=False):
-    target_ea = ida_idaapi.BADADDR
-    if v == ida_idaapi.BADADDR:
-        return target_ea
-    flags = ida_bytes.get_full_flags(v)
-    if not force_bitness and ida_bytes.is_qword(flags):
-        target_ea = get_value_with_size(v, 8)
-    elif not force_bitness and ida_bytes.is_dword(flags):
-        target_ea = get_value_with_size(v, 4)
-    else:
-        seg = ida_segment.getseg(v)
-        if seg is None:
-            return target_ea
-        off_size = 1<<(seg.bitness+1)
-        target_ea = get_value_with_size(v, off_size)
-    return target_ea
-
-
-def get_offset_fptr(v, force_bitness=False):
-    target_ea = ida_idaapi.BADADDR
-    tmp_ea = get_offset_ptr(v, force_bitness)
-    flags = ida_bytes.get_full_flags(tmp_ea)
-    if ida_bytes.is_code(flags):
-        target_ea = tmp_ea
-    return target_ea
-
-
-def get_vtbl_methods(target_ea):
-    orig_target_ea = target_ea
-    prev_target_ea = target_ea
-    item_diff = 8
-    seg = ida_segment.getseg(target_ea)
-    next_name_ea = ida_ida.inf_get_max_ea()
-    if seg:
-        item_diff = 1<<(seg.bitness+1)
-        # get next label that has a xref
-        next_name_ea = ida_bytes.next_that(target_ea, seg.end_ea, ida_bytes.has_xref)
-        if next_name_ea == ida_idaapi.BADADDR:
-            next_name_ea = seg.end_ea
-    
-    ea = get_offset_fptr(target_ea, force_bitness=True)
-    while target_ea != ida_idaapi.BADADDR and target_ea < next_name_ea and ea != ida_idaapi.BADADDR:
-        flags = ida_bytes.get_full_flags(ea)
-        if ida_bytes.is_code(flags):
-            yield ea
-        else:
-            break
-        
-        prev_target_ea = target_ea
-        target_ea = ida_search.find_data(target_ea, ida_search.SEARCH_DOWN|ida_search.SEARCH_NEXT)
-        if target_ea - prev_target_ea != item_diff:
-            break
-        ea = get_offset_fptr(target_ea, force_bitness=True)
-
