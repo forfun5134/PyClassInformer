@@ -123,6 +123,18 @@ class TestMultipleInheritance(unittest.TestCase):
         self.assertEqual([[b.name for b in p] for p in derived.paths[0]], [["Derived", "Base1"]])
         self.assertEqual([[b.name for b in p] for p in derived.paths[8]], [["Derived", "Base2"]])
 
+    def test_summary_counts_classes_not_vftables(self):
+        import pyclassinformer.lib_classes_checker as libchk
+        import pyclassinformer.msvc_rtti as msvc_rtti
+        libchk.set_libflag(self.result)
+        summary = msvc_rtti.rtti_parser.summarize(self.result)
+        self.assertEqual(summary["vftables"], 4)
+        self.assertEqual(summary["classes"], 3)
+        # Derived has two vftables but is a single class
+        self.assertEqual(summary["multiple_inheritance"], 1)
+        self.assertEqual(summary["library_classes"], 0)
+        self.assertEqual(summary["user_classes"], 3)
+
     def test_cols_of_the_same_class(self):
         import pyclassinformer.pci_utils as pci_utils
         u = pci_utils.utils.get()

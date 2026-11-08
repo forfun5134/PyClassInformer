@@ -11,6 +11,8 @@ the parser keeps working even when IDA changes its structure/type API (which
 happened in 8.5, 9.0 and - for some helpers - again in 9.5).
 """
 
+import sys
+
 import ida_auto
 import ida_bytes
 import ida_funcs
@@ -1008,28 +1010,45 @@ class rtti_parser(object):
         names = set()
         vfuncs = set()
         refs = set()
+        abstract = set()
+        mi = set()
+        vi = set()
+        ambiguous = set()
+        libs = set()
+        users = set()
+        no_hierarchy = set()
         for vtable, col in result.items():
             summary["vftables"] += 1
             names.add(col.name)
-            if col.chd is None or not col.bases:
-                summary["no_hierarchy"] += 1
-                continue
-            if col.chd.attribute & CHD_MULTINH:
-                summary["multiple_inheritance"] += 1
-            if col.chd.attribute & CHD_VIRTINH:
-                summary["virtual_inheritance"] += 1
-            if col.chd.attribute & CHD_AMBIGUOUS:
-                summary["ambiguous_inheritance"] += 1
             if col.libflag == col.LIBLIB:
-                summary["library_classes"] += 1
-            elif col.libflag == col.LIBNOTLIB:
-                summary["user_classes"] += 1
+                libs.add(col.name)
+            else:
+                # LIBNOTLIB, or not determined yet (set_libflag not run)
+                users.add(col.name)
             summary["vfuncs"] += len(col.vfeas)
             summary["pure_virtual"] += col.pure_virtual_count
             if col.pure_virtual_count:
-                summary["abstract_classes"] += 1
+                abstract.add(col.name)
             vfuncs.update(col.vfeas)
             refs.update(col.refeas)
+
+            if col.chd is None or not col.bases:
+                no_hierarchy.add(col.name)
+                continue
+            if col.chd.attribute & CHD_MULTINH:
+                mi.add(col.name)
+            if col.chd.attribute & CHD_VIRTINH:
+                vi.add(col.name)
+            if col.chd.attribute & CHD_AMBIGUOUS:
+                ambiguous.add(col.name)
+
+        summary["multiple_inheritance"] = len(mi)
+        summary["virtual_inheritance"] = len(vi)
+        summary["ambiguous_inheritance"] = len(ambiguous)
+        summary["library_classes"] = len(libs)
+        summary["user_classes"] = len(users)
+        summary["abstract_classes"] = len(abstract)
+        summary["no_hierarchy"] = len(no_hierarchy)
         summary["classes"] = len(names)
         summary["class_names"] = len(names)
         summary["unique_vfuncs"] = len(vfuncs)
@@ -1059,66 +1078,93 @@ class rtti_parser(object):
 
     # ------------------------------------------------------------------
     @staticmethod
+    def render(result, verbose=False):
+        """Return the textual RTTI report (what :meth:`show` prints)."""
+        out = []
+        add = out.append
+        for vtable in result:
+            col = result[vtable]
+            add("vtable at : " + hex(vtable))
+            add("  COL at {:#x}: {} {} {} {} {:#x} {:#x}{}".format(
+                col.ea, col.name, col.sig, col.offset, col.cdOffset,
+                col.tdea, col.chdea,
+                " " + hex(col.selfea) if col.selfea != ida_idaapi.BADADDR else ""))
+
+            if col.td is not None:
+                add("    TD  at {:#x}: {}{}".format(
+                    col.td.ea, col.td.demangled,
+                    " (%s)" % col.td.mangled if col.td.mangled else ""))
+
+            if col.chd is not None:
+                add("    CHD at {:#x}: {:#x} {}{} {} {:#x}".format(
+                    col.chd.ea, col.chd.sig,
+                    col.chd.flags,
+                    " (%s)" % col.chd.flag_names if col.chd.flag_names else "",
+                    col.chd.nb_classes, col.chd.bcaea))
+
+                # get BCDs
+                for bcd in col.bases:
+                    add("    {}BCD at {:#x}: {} {} {:#x} {} {}{}{}".format(
+                        " " * bcd.depth * 2, bcd.ea, bcd.name, bcd.pmd, bcd.tdea,
+                        bcd.nb_cbs, bcd.attributes,
+                        " (%s)" % bcd.flag_names if bcd.flag_names else "",
+                        " " + hex(bcd.chdea) if bcd.chdea != ida_idaapi.BADADDR else ""))
+
+            if not verbose:
+                continue
+
+            # virtual methods (the chooser shows a summary of them)
+            if col.vfeas:
+                add("    virtual methods ({}):".format(len(col.vfeas)))
+                for ea in col.vfeas:
+                    pure = " [pure]" if is_pure_virtual(ea) else ""
+                    add("      {:#x}  {}{}".format(ea, func_name(ea) or "?", pure))
+
+            if col.refeas:
+                add("    functions referring to the vftable ({}):".format(len(col.refeas)))
+                for ea in col.refeas:
+                    add("      {:#x}  {}".format(ea, func_name(ea) or "?"))
+
+        return "\n".join(out) + ("\n" if out else "")
+
+    @staticmethod
     def show(result, verbose=False):
         """Print the parsed RTTI information to the Output window.
 
         ``verbose`` also lists the virtual methods and the functions that
         refer to each vftable (possible constructors / destructors).
         """
-        for vtable in result:
-            col = result[vtable]
-            print("vtable at : " + hex(vtable))
-            print("  COL at {:#x}:".format(col.ea), col.name, col.sig, col.offset, col.cdOffset,
-                  hex(col.tdea), hex(col.chdea),
-                  hex(col.selfea) if col.selfea != ida_idaapi.BADADDR else "")
+        text = rtti_parser.render(result, verbose=verbose)
+        if text:
+            sys.stdout.write(text)
+        return text
 
-            if col.td is not None:
-                print("    TD  at {:#x}:".format(col.td.ea), col.td.demangled,
-                      "({})".format(col.td.mangled) if col.td.mangled else "")
-
-            if col.chd is not None:
-                print("    CHD at {:#x}:".format(col.chd.ea), hex(col.chd.sig),
-                      "{} {}".format(col.chd.flags, "({})".format(col.chd.flag_names)
-                                     if col.chd.flag_names else ""),
-                      col.chd.nb_classes, hex(col.chd.bcaea))
-
-                # get BCDs
-                for bcd in col.bases:
-                    print("    {}BCD at {:#x}:".format(" " * bcd.depth * 2, bcd.ea), bcd.name,
-                          bcd.pmd, hex(bcd.tdea), bcd.nb_cbs, bcd.attributes,
-                          "({})".format(bcd.flag_names) if bcd.flag_names else "",
-                          hex(bcd.chdea) if bcd.chdea != ida_idaapi.BADADDR else "")
-
-            if not verbose:
-                continue
-
-            # virtual methods (verbose output: the chooser shows a summary)
-            if col.vfeas:
-                print("    virtual methods ({}):".format(len(col.vfeas)))
-                for ea in col.vfeas:
-                    pure = " [pure]" if is_pure_virtual(ea) else ""
-                    print("      {:#x}  {}{}".format(ea, func_name(ea) or "?", pure))
-
-            if col.refeas:
-                print("    functions referring to the vftable ({}):".format(len(col.refeas)))
-                for ea in col.refeas:
-                    print("      {:#x}  {}".format(ea, func_name(ea) or "?"))
+    @staticmethod
+    def render_summary(result, elapsed=None):
+        """Return the summary of the parsed RTTI data (what :meth:`show_summary`
+        prints)."""
+        summary = rtti_parser.summarize(result)
+        out = [
+            "",
+            "=" * 78,
+            "PyClassInformer summary",
+            "=" * 78,
+            "  {:<42} {}".format("architecture", "x64" if u.x64 else "x86"),
+            "  {:<42} {}".format("image base", hex(ida_nalt.get_imagebase())),
+            "  {:<42} {}".format("scanned ranges", ", ".join(
+                "{:#x}-{:#x}".format(s, e) for s, e in u.valid_ranges) or "-"),
+            rtti_parser.format_summary(summary),
+        ]
+        if elapsed is not None:
+            out.append("  {:<42} {:.2f}s".format("elapsed", elapsed))
+        out.append("=" * 78)
+        return "\n".join(out) + "\n"
 
     @staticmethod
     def show_summary(result, elapsed=None):
-        summary = rtti_parser.summarize(result)
-        print("")
-        print("=" * 78)
-        print("PyClassInformer summary")
-        print("=" * 78)
-        print("  {:<42} {}".format("architecture", "x64" if u.x64 else "x86"))
-        print("  {:<42} {}".format("image base", hex(ida_nalt.get_imagebase())))
-        print("  {:<42} {}".format("scanned ranges", ", ".join(
-            "{:#x}-{:#x}".format(s, e) for s, e in u.valid_ranges) or "-"))
-        print(rtti_parser.format_summary(summary))
-        if elapsed is not None:
-            print("  {:<42} {:.2f}s".format("elapsed", elapsed))
-        print("=" * 78)
+        text = rtti_parser.render_summary(result, elapsed=elapsed)
+        sys.stdout.write(text)
+        return text
 
     @staticmethod
     def is_binary_allowed():

@@ -243,14 +243,11 @@ def build_csv(result):
 def build_text(result, summary=True):
     """Return the full textual report (the same text printed to the Output
     window) as a string."""
-    from contextlib import redirect_stdout
-
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        if summary:
-            msvc_rtti.rtti_parser.show_summary(result)
-        msvc_rtti.rtti_parser.show(result)
-    return buf.getvalue()
+    parts = []
+    if summary:
+        parts.append(msvc_rtti.rtti_parser.render_summary(result))
+    parts.append(msvc_rtti.rtti_parser.render(result))
+    return "".join(parts)
 
 
 # --------------------------------------------------------------------------

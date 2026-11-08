@@ -195,7 +195,8 @@ and every hierarchy path of the class:
 }
 ```
 
-`summary` contains the counters of the run: `vftables`, `classes`,
+`summary` contains the counters of the run (class counters are per class name,
+not per vftable): `vftables`, `classes`,
 `class_names`, `vfuncs`, `unique_vfuncs`, `pure_virtual`, `abstract_classes`,
 `ref_funcs`, `multiple_inheritance`, `virtual_inheritance`,
 `ambiguous_inheritance`, `library_classes`, `user_classes` and `no_hierarchy`.
